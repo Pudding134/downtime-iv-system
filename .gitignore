@@ -1,9 +1,12 @@
+# ENV files
 .env
 
-# OS/editor
+# OS/editor/Cache
 .DS_Store
 Thumbs.db
 .vscode/
-
 /*.spec
 *.pyc
+
+# Virtual environment
+/downtime
