@@ -23,10 +23,10 @@ def root():
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_home(request: Request):
-    # get the cookies token
+    # get the cookies token by the cookies name
     token = request.cookies.get("dv_sess")
+    # verify if payload valid or check if session is fresh (within timeout period)
     payload = read_session(token) if token else None
-    # payload valid or check if session is fresh
     if not payload or not is_fresh(payload):
         return RedirectResponse(url="/admin/login?error=expired", status_code=303)
     
@@ -60,17 +60,20 @@ def admin_login_post(passphrase: str = Form("")):
         response = RedirectResponse(url="/admin", status_code=303)
         # Set the session cookie into the response
         response.set_cookie(
-            key="dv_sess", 
-            value=token,
-            httponly=True,
-            samesite="lax"
+            key="dv_sess",          # Cookie name for session identification
+            value=token,            # The signed session token containing admin role and timestamp
+            httponly=True,          # Prevents JavaScript access to cookie (XSS protection)
+            samesite="lax"          # Allows cookie on same-site requests and top-level navigation (CSRF protection)
         )
         return response
     return RedirectResponse("/admin/login?error=wrong_password", status_code=303)  # failure -> go home page
 
 
+# Handle admin logout by clearing session and redirecting to home page
 @app.post("/admin/logout")
 def admin_logout():
+    # Redirect to home page after logout
     response = RedirectResponse(url="/", status_code=303)
+    # Delete the session cookie to terminate admin session
     response.delete_cookie(key="dv_sess")
     return response
