@@ -1,0 +1,113 @@
+# Prefilled bags (capacity = prefill_ml)
+- id: bag_ns_50
+  kind: bag_prefilled
+  capacity_ml: 50
+  prefill_ml: 65
+  solvent: NS
+
+- id: bag_ns_100
+  kind: bag_prefilled
+  capacity_ml: 100
+  prefill_ml: 120
+  solvent: NS
+
+- id: bag_ns_250
+  kind: bag_prefilled
+  capacity_ml: 250
+  prefill_ml: 350
+  solvent: NS
+
+- id: bag_ns_500
+  kind: bag_prefilled
+  capacity_ml: 500
+  prefill_ml: 650
+  solvent: NS
+
+- id: bag_ns_1000
+  kind: bag_prefilled
+  capacity_ml: 1000
+  prefill_ml: 1100
+  solvent: NS
+
+- id: bag_d5_50
+  kind: bag_prefilled
+  capacity_ml: 50
+  prefill_ml: 65
+  solvent: D5
+
+- id: bag_d5_250
+  kind: bag_prefilled
+  capacity_ml: 250
+  prefill_ml: 350
+  solvent: D5
+
+- id: bag_d5_500
+  kind: bag_prefilled
+  capacity_ml: 500
+  prefill_ml: 650
+  solvent: D5
+
+# Empty EVA bags
+- id: bag_empty_250
+  kind: bag_empty
+  capacity_ml: 350
+
+- id: bag_empty_500
+  kind: bag_empty
+  capacity_ml: 650
+
+# Ecoflac bottles (prefilled with NS)
+- id: ecoflac_ns_100
+  kind: bottle_prefilled
+  capacity_ml: 100
+  prefill_ml: 150
+  solvent: NS
+
+- id: ecoflac_ns_250
+  kind: bottle_prefilled
+  capacity_ml: 250
+  prefill_ml: 300
+  solvent: NS
+
+- id: ecoflac_ns_500
+  kind: bottle_prefilled
+  capacity_ml: 500
+  prefill_ml: 600
+  solvent: NS
+
+- id: ecoflac_ns_1000
+  kind: bottle_prefilled
+  capacity_ml: 1000
+  prefill_ml: 1100
+  solvent: NS
+
+# Syringes (usable volume = capacity * usable_fraction)
+- id: syringe_1
+  kind: syringe
+  capacity_ml: 1
+  usable_fraction: 0.8
+
+- id: syringe_5
+  kind: syringe
+  capacity_ml: 5
+  usable_fraction: 0.8
+
+- id: syringe_10
+  kind: syringe
+  capacity_ml: 10
+  usable_fraction: 0.8
+
+- id: syringe_20
+  kind: syringe
+  capacity_ml: 20
+  usable_fraction: 0.8
+
+- id: syringe_30
+  kind: syringe
+  capacity_ml: 30
+  usable_fraction: 0.8
+
+- id: syringe_50
+  kind: syringe
+  capacity_ml: 50
+  usable_fraction: 0.8

@@ -1,0 +1,84 @@
+- id: PACLITAXEL
+  name: Paclitaxel
+  presentation: solution           # solution | powder
+  stock:
+    amount_mg: 300
+    volume_ml: 50
+  reconstitution:
+    required: false
+  conc_mg_per_ml:
+    min: 0.3
+    max: 1.2
+  allowed_solvents: [NS]
+  allowed_container_kinds: [bottle_prefilled]  # ecoflac bottles
+  stability:
+    general_hours: 168  # 7 days
+
+- id: CARBOPLATIN
+  name: Carboplatin
+  presentation: solution
+  stock:
+    amount_mg: 450
+    volume_ml: 45
+  reconstitution:
+    required: false
+  conc_mg_per_ml:
+    min: 0.5
+    max: 4.0
+  allowed_solvents: [NS, D5]
+  allowed_container_kinds: [bag_prefilled, bag_empty]
+  stability:
+    by_solvent_hours:
+      NS: 24
+      D5: 168
+
+- id: AZACITIDINE
+  name: Azacitidine
+  presentation: powder
+  stock:
+    amount_mg: 100
+  reconstitution:
+    required: true
+    diluent: WFI
+    volume_ml: 4
+    note: "Cold WFI"
+  conc_mg_per_ml:
+    min: 25
+    max: 25
+  allowed_solvents: [WFI]    # direct syringe storage after reconstitution
+  allowed_container_kinds: [syringe]
+  stability:
+    general_hours: 8
+
+- id: BORTEZOMIB
+  name: Bortezomib
+  presentation: powder
+  stock:
+    amount_mg: 3.5
+  reconstitution:
+    required: true
+    diluent: NS
+    volume_ml: 3.5
+  conc_mg_per_ml:
+    min: 1.0
+    max: 1.0
+  allowed_solvents: [NS]
+  allowed_container_kinds: [syringe]
+  stability:
+    general_hours: 144   # 6 days
+
+- id: OXALIPLATIN
+  name: Oxaliplatin
+  presentation: solution
+  stock:
+    amount_mg: 100
+    volume_ml: 20
+  reconstitution:
+    required: false
+  conc_mg_per_ml:
+    min: 0.2
+    max: 1.0
+  allowed_solvents: [D5]
+  allowed_container_kinds: [bag_prefilled, bag_empty]
+  stability:
+    general_hours: 168

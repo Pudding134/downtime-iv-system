@@ -1,0 +1,49 @@
+library:
+  # --- Generic container prep ------------------------------------------------
+  step.gather_container: "Gather {{ container_name }}."
+
+  # --- Reconstitution (powder only) ------------------------------------------
+  step.reconstitute_intro:
+    when: "{{ presentation == 'powder' }}"
+    text: "Reconstitute vial(s) with {{ reconst_diluent }}."
+  step.reconstitute_each:
+    when: "{{ presentation == 'powder' and reconst_per_vial_ml is defined }}"
+    text: "Add {{ reconst_per_vial_ml|round(1) }} mL {{ reconst_diluent }} to each vial (×{{ n_vials }}). Swirl to dissolve."
+  step.reconstitute_pool:
+    when: "{{ presentation == 'powder' and n_vials|default(1) > 1 }}"
+    text: "Pool reconstituted vials aseptically to obtain approximately {{ stock_total_ml|round(1) }} mL of stock."
+  step.reconstitute_note_leftover:
+    when: "{{ presentation == 'powder' and stock_leftover_ml|default(0) > 0 }}"
+    text: "Discard unused stock: approximately {{ stock_leftover_ml|round(1) }} mL per policy."
+
+  # --- Stock preparation (solution or powder) --------------------------------
+  step.prepare_stock:
+    text: >
+      Prepare stock {{ stock_conc_mg_per_ml|round(1) }} mg/mL
+      {% if presentation == 'powder' %}(vials: {{ n_vials }}, total ~{{ stock_total_ml|round(1) }} mL){% endif %}.
+
+  # --- Headroom management in container --------------------------------------
+  step.prewithdraw:
+    when: "{{ v_withdraw_ml|default(0) > 0 }}"
+    text: "Withdraw {{ v_withdraw_ml|round(1) }} mL from the container to create headroom."
+  step.no_prewithdraw:
+    when: "{{ v_withdraw_ml|default(0) <= 0 }}"
+    text: "No pre-withdrawal required."
+
+  # --- Drug transfer & mixing -------------------------------------------------
+  step.withdraw_drug: "Withdraw {{ v_drug_ml|round(1) }} mL of drug."
+  step.inject_mix:
+    text: "Inject into the container. Invert {{ invert_times|default(10) }} times to mix."
+
+  # --- Inspection & labelling -------------------------------------------------
+  step.inspect_label:
+    text: >
+      Inspect the final solution. Affix a label with drug, dose, final concentration,
+      total volume, solvent, container, and beyond-use date/time.
+
+  # --- Optional extras (insert where needed) ---------------------------------
+  extra.vented_spike: "Use a vented spike if required by SOP."
+  extra.light_protect: "Apply light-protective cover if indicated."
+  extra.stability_note: "Respect stability limits: {{ stability_note }}."
+  extra.shake_to_mix: "Shake gently to mix."
+  extra.cold_storage: "Store in refrigerator if required."

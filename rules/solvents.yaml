@@ -1,0 +1,14 @@
+- id: NS
+  name: "0.9% Sodium Chloride"
+  for_reconstitution: true
+  for_dilution: true
+
+- id: D5
+  name: "Dextrose 5%"
+  for_reconstitution: false
+  for_dilution: true
+
+- id: WFI
+  name: "Water for Injection"
+  for_reconstitution: true
+  for_dilution: false   # not used for bag dilution; syringe-only drugs may allow direct storage
