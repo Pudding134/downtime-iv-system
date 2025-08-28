@@ -7,7 +7,8 @@
     <body>
         <h1>Admin Login</h1>
         <!-- if error detected in url query variable "?error", then will display the error variable passed as error msg in red -->
-        {% if error %} <p style="color:red">{{ error }} </p> {% endif %}
+        {% if error == 'wrong_password' %} <p style="color:red">{{ error }} </p> {% endif %}
+        {% if error == 'expired' %}<p style="color:red">Session expired. Please log in again.</p>{% endif %}
         <form method="post" action="/admin/login">
             <input type="password" name="passphrase" placeholder="Admin Password" >
             <button type="submit">Login</button>
