@@ -9,7 +9,14 @@
     <Small>{{rules_badge}}</Small>
     <p>Guest Mode</p>
     <p><a href="/admin/login">Admin Login</a></p>
-
+    {% if rules_errors and rules_errors|length %}
+    <div style="color:red; margin:.5rem 0">
+        <strong>Rules check failed:</strong>
+        <ul>
+        {% for e in rules_errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 
 </body>
 

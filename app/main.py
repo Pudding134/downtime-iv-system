@@ -4,6 +4,7 @@ from typing import Annotated
 from .auth import authenticate_admin, make_session, read_session, is_fresh
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from .rules_loader import RulesState, init_rules
 
 TEMPLATES = Environment(
     loader=FileSystemLoader(Path(__file__).parent / "views"),
@@ -16,9 +17,20 @@ def render(name: str, **ctx):
 
 app = FastAPI(title="Downtime-IV-System", version="0.1.0")
 
+RULES_STATE: RulesState | None = None
+RULES_BADGE = "Rules — not loaded"
+
+@app.on_event("startup")
+def _load_rules():
+    global RULES_STATE, RULES_BADGE
+    RULES_STATE = init_rules(Path(__file__).parent.parent / "rules")
+    # For T2.1 we only show counts/OK; T3 will set a real badge from manifest.
+    RULES_BADGE = RULES_STATE.badge_text
+
 @ app.get("/", response_class=HTMLResponse)
 def root():
-    return render("home_guest.html", rules_badge="Rules - not loaded (M2)")
+    errors = RULES_STATE.errors if (RULES_STATE and RULES_STATE.errors) else []
+    return render("home_guest.html", rules_badge=RULES_BADGE, rules_errors=errors)
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -31,8 +43,9 @@ def admin_home(request: Request):
         return RedirectResponse(url="/admin/login?error=expired", status_code=303)
     
     # render page if all valid
-    response = render("home_admin.html", rules_badge = "Rules - not loaded (M2)")
-    
+    errors = RULES_STATE.errors if (RULES_STATE and RULES_STATE.errors) else []
+    response = render("home_admin.html", rules_badge = RULES_BADGE, rules_errors=errors)
+
     # Refresh idle timer (slide the window): issue a fresh token
     new_token = make_session()
     response.set_cookie(key="dv_sess",
