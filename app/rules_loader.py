@@ -22,15 +22,15 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, get_args
 import yaml
 from pydantic import BaseModel, Field, ValidationError, ConfigDict, field_validator
 
-import hashlib
-
+# for integrity checking of SHA-256 hashes - detect file tempering
+import hashlib 
 def sha256_hex(path: Path) -> str:
     """Return SHA-256 hex digest of a file (streamed)."""
-    h = hashlib.sha256()
+    hash = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
+            hash.update(chunk)
+    return hash.hexdigest()
 
 # ---------------------------
 # Constants / allowed enums
