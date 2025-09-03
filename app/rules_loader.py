@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, get_args
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, ConfigDict, field_validator
@@ -39,8 +39,7 @@ def sha256_hex(path: Path) -> str:
 ContainerKind = Literal["bag_prefilled", "bag_empty", "bottle_prefilled", "syringe"]
 Presentation = Literal["solution", "powder"]
 
-ALLOWED_CONTAINER_KINDS: set[str] = {"bag_prefilled", "bag_empty", "bottle_prefilled", "syringe"}
-
+ALLOWED_CONTAINER_KINDS: set[str] = set(get_args(ContainerKind)) # pulling value from ContainerKind and convert into a iterable set
 
 # ---------------------------
 # Pydantic models (strict)
