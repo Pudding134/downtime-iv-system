@@ -28,6 +28,7 @@ def sha256_hex(path: Path) -> str:
     """Return SHA-256 hex digest of a file (streamed)."""
     hash = hashlib.sha256()
     with path.open("rb") as f:
+        # read file in 8kb chunks
         for chunk in iter(lambda: f.read(8192), b""):
             hash.update(chunk)
     return hash.hexdigest()
@@ -76,19 +77,21 @@ class Container(BaseModel):
 
     @field_validator("capacity_ml")
     @classmethod
-    def _cap_positive(cls, v: float) -> float:
-        if v <= 0:
+    # @classmethod makes the first parameter the class object (cls) instead of an instance (self).
+    # granted we don't have to call it exclusively as it is "self"
+    def _cap_positive(cls, value: float) -> float:
+        if value <= 0:
             raise ValueError("capacity_ml must be > 0")
-        return v
+        return value
 
     @field_validator("usable_fraction")
     @classmethod
-    def _frac_if_present(cls, v: Optional[float]) -> Optional[float]:
-        if v is None:
-            return v
-        if not (0 < v <= 1):
+    def _frac_if_present(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return value
+        if not (0 < value <= 1):
             raise ValueError("usable_fraction must be in (0, 1]")
-        return v
+        return value
 
     def intrinsic_checks(self) -> List[str]:
         """
