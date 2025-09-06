@@ -276,10 +276,6 @@ class Medication(BaseModel):
             if self.stock.volume_ml is None:
                 errs.append("solution meds must define stock.volume_ml")
 
-        # concentration single-point sanity (min==max allowed)
-        if self.conc_mg_per_ml.min <= 0 or self.conc_mg_per_ml.max <= 0:
-            errs.append("conc_mg_per_ml must be positive")
-
         return errs
 
 
