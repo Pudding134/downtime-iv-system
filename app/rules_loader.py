@@ -275,7 +275,8 @@ class Medication(BaseModel):
                 errs.append("solution meds must not require reconstitution")
             if self.stock.volume_ml is None:
                 errs.append("solution meds must define stock.volume_ml")
-
+            if (self.reconstitution.diluent is not None) or (self.reconstitution.volume_ml is not None):
+                errs.append("solution meds must not define reconstitution.diluent/volume_ml")
         return errs
 
 
