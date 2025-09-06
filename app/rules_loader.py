@@ -79,19 +79,19 @@ class Container(BaseModel):
     @classmethod
     # @classmethod makes the first parameter the class object (cls) instead of an instance (self).
     # granted we don't have to call it exclusively as it is "self"
-    def _cap_positive(cls, value: float) -> float:
-        if value <= 0:
+    def _cap_positive(cls, capacity_ml: float) -> float:
+        if capacity_ml <= 0:
             raise ValueError("capacity_ml must be > 0")
-        return value
+        return capacity_ml
 
     @field_validator("usable_fraction")
     @classmethod
-    def _frac_if_present(cls, value: Optional[float]) -> Optional[float]:
-        if value is None:
-            return value
-        if not (0 < value <= 1):
+    def _frac_if_present(cls, fraction_value: Optional[float]) -> Optional[float]:
+        if fraction_value is None:
+            return fraction_value
+        if not (0 < fraction_value <= 1):
             raise ValueError("usable_fraction must be in (0, 1]")
-        return value
+        return fraction_value
 
     def intrinsic_checks(self) -> List[str]:
         """
@@ -116,6 +116,8 @@ class Container(BaseModel):
                 errs.append("syringe must define usable_fraction (e.g., 0.8)")
             if self.prefill_ml is not None:
                 errs.append("syringe must not define prefill_ml")
+            if self.solvent is not None:
+                errs.append("syringe must not define solvent")
         return errs
 
 
@@ -132,19 +134,19 @@ class Stock(BaseModel):
 
     @field_validator("amount_mg")
     @classmethod
-    def _amt_positive(cls, v: float) -> float:
-        if v <= 0:
+    def _amt_positive(cls, volume: float) -> float:
+        if volume <= 0:
             raise ValueError("stock.amount_mg must be > 0")
-        return v
+        return volume
 
     @field_validator("volume_ml")
     @classmethod
-    def _vol_positive_if_present(cls, v: Optional[float]) -> Optional[float]:
-        if v is None:
-            return v
-        if v <= 0:
+    def _vol_positive_if_present(cls, volume: Optional[float]) -> Optional[float]:
+        if volume is None:
+            return volume
+        if volume <= 0:
             raise ValueError("stock.volume_ml must be > 0 when provided")
-        return v
+        return volume
 
 
 class Reconstitution(BaseModel):
@@ -161,12 +163,12 @@ class Reconstitution(BaseModel):
 
     @field_validator("volume_ml")
     @classmethod
-    def _vol_positive_if_present(cls, v: Optional[float]) -> Optional[float]:
-        if v is None:
-            return v
-        if v <= 0:
+    def _vol_positive_if_present(cls, volume: Optional[float]) -> Optional[float]:
+        if volume is None:
+            return volume
+        if volume <= 0:
             raise ValueError("reconstitution.volume_ml must be > 0 when provided")
-        return v
+        return volume
 
 
 class ConcRange(BaseModel):
@@ -181,19 +183,20 @@ class ConcRange(BaseModel):
 
     @field_validator("min", "max")
     @classmethod
-    def _positive(cls, v: float) -> float:
-        if v <= 0:
+    def _positive(cls, volume: float) -> float:
+        if volume <= 0:
             raise ValueError("concentration values must be > 0")
-        return v
+        return volume
 
-    @field_validator("max")
+    @field_validator("max") # to attach the validation and error to "max" field specifically
     @classmethod
-    def _min_le_max(cls, v: float, info) -> float:
+    def _min_le_max(cls, max_conc: float, info) -> float:
         # info.data contains the other fields already validated
-        mn = info.data.get("min")
-        if mn is not None and v < mn:
+        min_conc = info.data.get("min")
+        # is not None check is added in case min is missing, though Pydantic should catch that first
+        if min_conc is not None and max_conc < min_conc:
             raise ValueError("conc_mg_per_ml.max must be >= min")
-        return v
+        return max_conc
 
 
 class Stability(BaseModel):
@@ -210,22 +213,22 @@ class Stability(BaseModel):
 
     @field_validator("general_hours")
     @classmethod
-    def _gen_pos(cls, v: Optional[int]) -> Optional[int]:
-        if v is None:
-            return v
-        if v <= 0:
+    def _gen_pos(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return value
+        if value <= 0:
             raise ValueError("stability.general_hours must be > 0")
-        return v
+        return value
 
     @field_validator("by_solvent_hours")
     @classmethod
-    def _map_pos(cls, v: Optional[Dict[str, int]]) -> Optional[Dict[str, int]]:
-        if v is None:
-            return v
-        for k, hours in v.items():
+    def _map_pos(cls, value: Optional[Dict[str, int]]) -> Optional[Dict[str, int]]:
+        if value is None:
+            return value
+        for diluent, hours in value.items():
             if hours <= 0:
-                raise ValueError(f"stability.by_solvent_hours[{k!r}] must be > 0")
-        return v
+                raise ValueError(f"stability.by_solvent_hours[{diluent!r}] must be > 0")
+        return value
 
 
 class Medication(BaseModel):
@@ -246,11 +249,11 @@ class Medication(BaseModel):
 
     @field_validator("allowed_container_kinds")
     @classmethod
-    def _kinds_valid(cls, kinds: List[str]) -> List[str]:
-        unknown = [k for k in kinds if k not in ALLOWED_CONTAINER_KINDS]
-        if unknown:
-            raise ValueError(f"unknown container kinds: {unknown}")
-        return kinds
+    def _kinds_valid(cls, container_kinds_list: List[str]) -> List[str]:
+        invalid_container_kinds = [kind for kind in container_kinds_list if kind not in ALLOWED_CONTAINER_KINDS]
+        if invalid_container_kinds:
+            raise ValueError(f"unknown container kinds: {invalid_container_kinds}")
+        return container_kinds_list
 
     def intrinsic_checks(self) -> List[str]:
         """
