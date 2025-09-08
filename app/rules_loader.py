@@ -106,11 +106,13 @@ class Container(BaseModel):
                 errs.append("prefill_ml must be <= capacity_ml for prefilled containers")
             if not self.solvent:
                 errs.append("solvent required for prefilled containers")
+        
         elif self.kind == "bag_empty":
             if self.prefill_ml is not None:
                 errs.append("bag_empty must not define prefill_ml")
             if self.solvent is not None:
                 errs.append("bag_empty must not define solvent")
+        
         elif self.kind == "syringe":
             if self.usable_fraction is None:
                 errs.append("syringe must define usable_fraction (e.g., 0.8)")
@@ -118,6 +120,7 @@ class Container(BaseModel):
                 errs.append("syringe must not define prefill_ml")
             if self.solvent is not None:
                 errs.append("syringe must not define solvent")
+        
         return errs
 
 
@@ -270,6 +273,8 @@ class Medication(BaseModel):
                 errs.append("powder meds must set reconstitution.volume_ml")
             if self.stock.volume_ml is not None:
                 errs.append("powder meds should not define stock.volume_ml (volume is from reconstitution)")
+        
+        
         else:  # solution
             if self.reconstitution.required:
                 errs.append("solution meds must not require reconstitution")
