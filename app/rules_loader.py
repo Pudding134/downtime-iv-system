@@ -28,22 +28,22 @@ def sha256_hex(path: Path) -> str:
     """Return SHA-256 hex digest of a file (streamed)."""
     hash = hashlib.sha256()
     with path.open("rb") as f:
-        # read file in 8kb chunks
+        # read file in 8kb chunks (8192 bytes)
         for chunk in iter(lambda: f.read(8192), b""):
             hash.update(chunk)
     return hash.hexdigest()
 
 # ---------------------------
-# Constants / allowed enums
+# Part 2: Constants / allowed enums type definitions
 # ---------------------------
 
 ContainerKind = Literal["bag_prefilled", "bag_empty", "bottle_prefilled", "syringe"]
 Presentation = Literal["solution", "powder"]
 
-ALLOWED_CONTAINER_KINDS: set[str] = set(get_args(ContainerKind)) # pulling value from ContainerKind and convert into a iterable set
+ALLOWED_CONTAINER_KINDS: set[str] = set(get_args(ContainerKind)) # pulling value from ContainerKind and convert into a iterable set for later usage
 
 # ---------------------------
-# Pydantic models (strict)
+# Part 3: Pydantic Models Classes (strict)
 # ---------------------------
 
 class Solvent(BaseModel):
@@ -286,7 +286,7 @@ class Medication(BaseModel):
 
 
 # ---------------------------
-# YAML helpers / loaders
+# Part 4: YAML helpers / loaders
 # ---------------------------
 
 def load_yaml(path: Path) -> Any:
@@ -312,12 +312,15 @@ def load_yaml(path: Path) -> Any:
 
 def _index_by_id(items: List[BaseModel], kind: str) -> Dict[str, BaseModel]:
     """
+    Internal Function.
     Build a dict by 'id'; raise on duplicates for early detection.
     """
     idx: Dict[str, BaseModel] = {}
     for obj in items:
+        # check for duplicate IDs
         if obj.id in idx:
             raise ValueError(f"Duplicate {kind} id: {obj.id}")
+        # add non-duplicate into list sorted by id as key (O(1) constant time search/access speed)
         idx[obj.id] = obj
     return idx
 
@@ -327,11 +330,15 @@ def load_solvents(path: Path) -> Dict[str, Solvent]:
     Parse solvents.yaml into {id -> Solvent}.
     """
     raw = load_yaml(path)
+    # Validate it's a list "instance"
     if not isinstance(raw, list):
         raise ValueError(f"{path.name} must be a YAML list")
+    
+    # Convert each YAML item to Pydantic object
     items: List[Solvent] = []
     for i, row in enumerate(raw):
         try:
+            # create a solvent object with yaml dictionary (row)
             items.append(Solvent.model_validate(row))
         except ValidationError as e:
             raise ValueError(f"solvents[{i}] invalid: {e}") from e
@@ -346,11 +353,11 @@ def load_containers(path: Path) -> Dict[str, Container]:
     if not isinstance(raw, list):
         raise ValueError(f"{path.name} must be a YAML list")
     items: List[Container] = []
-    intrinsic_errors: List[str] = []
+    intrinsic_errors: List[str] = [] # List variable to collect all errors
     for i, row in enumerate(raw):
         try:
             c = Container.model_validate(row)
-            msgs = c.intrinsic_checks()
+            msgs = c.intrinsic_checks() # Call the business logic validation from Container class
             if msgs:
                 intrinsic_errors.extend([f"container {c.id}: {m}" for m in msgs])
             items.append(c)
@@ -374,7 +381,7 @@ def load_medications(path: Path) -> Dict[str, Medication]:
     for i, row in enumerate(raw):
         try:
             m = Medication.model_validate(row)
-            msgs = m.intrinsic_checks()
+            msgs = m.intrinsic_checks() # Complex business logic check
             if msgs:
                 all_errs.extend([f"med {m.id}: {msg}" for msg in msgs])
             items.append(m)
@@ -387,55 +394,62 @@ def load_medications(path: Path) -> Dict[str, Medication]:
 
 
 # ---------------------------
-# Cross-checks across files
+# Part 5: Cross-File Validation
 # ---------------------------
 
 def cross_check(
-    meds: Dict[str, Medication],
-    solvents: Dict[str, Solvent],
-    containers: Dict[str, Container],
+    meds_list: Dict[str, Medication],
+    solvents_list: Dict[str, Solvent],
+    containers_list: Dict[str, Container],
 ) -> List[str]:
     """
     Validate relationships *between* files. We return a list of human-friendly
     errors so the UI can display them without crashing.
     """
-    errs: List[str] = []
+    error_list: List[str] = []
 
-    # 1) Every med.allowed_solvents must exist
-    for m in meds.values():
-        for s in m.allowed_solvents:
-            if s not in solvents:
-                errs.append(f"med {m.id}: unknown solvent {s!r}")
+    # 1) Check every med.allowed_solvents must exist
+    for med in meds_list.values():
+        for solvent in med.allowed_solvents:
+            if solvent not in solvents_list:
+                error_list.append(f"med {med.id}: unknown solvent {solvent!r}")
 
-    # 2) Every med.allowed_container_kinds must be one of the allowed kinds
+    # 2) Check every med.allowed_container_kinds must be one of the allowed kinds
     #    (already enforced by the model, but we keep a defensive check here).
-    for m in meds.values():
-        unk = [k for k in m.allowed_container_kinds if k not in ALLOWED_CONTAINER_KINDS]
-        if unk:
-            errs.append(f"med {m.id}: unknown container kinds {unk}")
+    for med in meds_list.values():
+        # add to variable any meds with unmatched container kind
+        unknown_kind = [kind for kind in med.allowed_container_kinds if kind not in ALLOWED_CONTAINER_KINDS]
+        
+        # add error message to error list if any unmatched/unknown container kind found
+        if unknown_kind:
+            error_list.append(f"med {med.id}: unknown container kinds {unknown_kind}")
 
-    # 3) Powder meds must reference a valid reconstitution diluent
-    for m in meds.values():
-        if m.presentation == "powder":
-            dil = m.reconstitution.diluent
-            if not dil or dil not in solvents:
-                errs.append(f"med {m.id}: reconstitution.diluent {dil!r} not in solvents")
+    # 3) Check that powder meds must reference a valid reconstitution diluent
+    for med in meds_list.values():
+        if med.presentation == "powder":
+            diluent = med.reconstitution.diluent
+            # append to error list if there is no diluent assigned or if it is not an approved diluent
+            if not diluent or diluent not in solvents_list:
+                error_list.append(f"med {med.id}: reconstitution.diluent {diluent!r} not in solvents")
 
-    # 4) Prefilled containers must reference an existing solvent
-    for c in containers.values():
-        if c.kind in {"bag_prefilled", "bottle_prefilled"}:
-            if not c.solvent or c.solvent not in solvents:
-                errs.append(f"container {c.id}: solvent {c.solvent!r} not in solvents")
+    # 4) Check that prefilled containers must reference an existing solvent
+    for container in containers_list.values():
+        if container.kind in {"bag_prefilled", "bottle_prefilled"}:
+            if not container.solvent or container.solvent not in solvents_list:
+                error_list.append(f"container {container.id}: solvent {container.solvent!r} not in solvents")
 
     # 5) Syringe capacity rule: usable volume = cap * usable_fraction
-    for c in containers.values():
-        if c.kind == "syringe":
-            if c.usable_fraction is None or not (0 < c.usable_fraction <= 1):
-                errs.append(f"container {c.id}: usable_fraction must be in (0,1]")
+    for container in containers_list.values():
+        if container.kind == "syringe":
+            if container.usable_fraction is None or not (0 < container.usable_fraction <= 1):
+                error_list.append(f"container {container.id}: usable_fraction must be in (0,1]")
 
-    return errs
+    return error_list
 
 
+# ---------------------------
+# Part 6: Integrity System
+# ---------------------------
 def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tuple[str, str, str, dict[str, str]]:
     """
     Compare actual file hashes vs manifest. Return:
@@ -478,7 +492,7 @@ def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tup
 
 
 # ---------------------------
-# In-memory state & initializer
+# Part 7: In-memory state object
 # ---------------------------
 
 @dataclass
@@ -499,23 +513,32 @@ class RulesState:
     badge_text: str = "Rules — not loaded" # T3 sets real badge
 
 
+
+# ---------------------------
+# Part 8: The Main Initializer
+# ---------------------------
 def init_rules(rules_dir: Path) -> RulesState:
     """
     Load all rules files from rules_dir, run cross-checks, and return a RulesState.
     This function raises on hard parse/shape errors, but *does not* raise on
     cross-check issues; those are returned in state.errors for the UI to display.
     """
+
+    # Set all the yaml paths
     solvents_path = rules_dir / "solvents.yaml"
     containers_path = rules_dir / "containers.yaml"
     meds_path = rules_dir / "medications.yaml"
     # steps_library.yaml and sequences.yaml are parsed in M3 when we assemble steps
 
+    # Load each YAML file via its respective load functions, returns Dict[str, Class]
     solvents = load_solvents(solvents_path)
     containers = load_containers(containers_path)
     meds = load_medications(meds_path)
 
+    # Run cross-validation, storing errors list in errs variable
     errs = cross_check(meds, solvents, containers)
 
+    # Create the main State object, assigning all the different class and errors list as part of it
     state = RulesState(
         meds=meds,
         containers=containers,
@@ -525,7 +548,7 @@ def init_rules(rules_dir: Path) -> RulesState:
         # version/badge will be populated in T3
     )
 
-        # --- Integrity badge (T3) ---
+    # --- Integrity badge (T3) ---
     manifest_path = rules_dir / "rules_manifest.yaml"
     data_paths = {
         "solvents.yaml": rules_dir / "solvents.yaml",
@@ -534,6 +557,8 @@ def init_rules(rules_dir: Path) -> RulesState:
         "steps_library.yaml": rules_dir / "steps_library.yaml",
         "sequences.yaml": rules_dir / "sequences.yaml",
     }
+
+    # Check integrity, comparing the current file hashes vs rules_manifest recorded
     status, badge, version, actual = compute_rules_badge(manifest_path, data_paths)
     state.version = version
     state.badge_text = badge
