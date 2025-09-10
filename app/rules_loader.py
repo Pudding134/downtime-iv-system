@@ -310,87 +310,88 @@ def load_yaml(path: Path) -> Any:
     return data
 
 
-def _index_by_id(items: List[BaseModel], kind: str) -> Dict[str, BaseModel]:
+def _index_by_id(items_list: List[BaseModel], kind: str) -> Dict[str, BaseModel]:
     """
     Internal Function.
     Build a dict by 'id'; raise on duplicates for early detection.
     """
-    idx: Dict[str, BaseModel] = {}
-    for obj in items:
+    index: Dict[str, BaseModel] = {}
+    for object in items_list:
         # check for duplicate IDs
-        if obj.id in idx:
-            raise ValueError(f"Duplicate {kind} id: {obj.id}")
+        if object.id in index:
+            raise ValueError(f"Duplicate {kind} id: {object.id}")
         # add non-duplicate into list sorted by id as key (O(1) constant time search/access speed)
-        idx[obj.id] = obj
-    return idx
+        # dict[key] = value
+        index[object.id] = object
+    return index
 
 
 def load_solvents(path: Path) -> Dict[str, Solvent]:
     """
     Parse solvents.yaml into {id -> Solvent}.
     """
-    raw = load_yaml(path)
+    raw_data = load_yaml(path)
     # Validate it's a list "instance"
-    if not isinstance(raw, list):
+    if not isinstance(raw_data, list):
         raise ValueError(f"{path.name} must be a YAML list")
     
     # Convert each YAML item to Pydantic object
-    items: List[Solvent] = []
-    for i, row in enumerate(raw):
+    items_list: List[Solvent] = []
+    for index, data_row in enumerate(raw_data):
         try:
             # create a solvent object with yaml dictionary (row)
-            items.append(Solvent.model_validate(row))
+            items_list.append(Solvent.model_validate(data_row))
         except ValidationError as e:
-            raise ValueError(f"solvents[{i}] invalid: {e}") from e
-    return _index_by_id(items, "solvent")
+            raise ValueError(f"solvents[{index}] invalid: {e}") from e
+    return _index_by_id(items_list, "solvent")
 
 
 def load_containers(path: Path) -> Dict[str, Container]:
     """
     Parse containers.yaml into {id -> Container} and run intrinsic shape checks.
     """
-    raw = load_yaml(path)
-    if not isinstance(raw, list):
+    raw_data = load_yaml(path)
+    if not isinstance(raw_data, list):
         raise ValueError(f"{path.name} must be a YAML list")
-    items: List[Container] = []
+    items_list: List[Container] = []
     intrinsic_errors: List[str] = [] # List variable to collect all errors
-    for i, row in enumerate(raw):
+    for index, row in enumerate(raw_data):
         try:
-            c = Container.model_validate(row)
-            msgs = c.intrinsic_checks() # Call the business logic validation from Container class
+            container = Container.model_validate(row)
+            msgs = container.intrinsic_checks() # Call the business logic validation from Container class
             if msgs:
-                intrinsic_errors.extend([f"container {c.id}: {m}" for m in msgs])
-            items.append(c)
+                intrinsic_errors.extend([f"container {container.id}: {m}" for m in msgs])
+            items_list.append(container)
         except ValidationError as e:
-            raise ValueError(f"containers[{i}] invalid: {e}") from e
+            raise ValueError(f"containers[{index}] invalid: {e}") from e
     if intrinsic_errors:
         # We raise here so the user fixes container shapes before cross-checks.
         raise ValueError("Container shape errors:\n- " + "\n- ".join(intrinsic_errors))
-    return _index_by_id(items, "container")
+    return _index_by_id(items_list, "container")
 
 
 def load_medications(path: Path) -> Dict[str, Medication]:
     """
     Parse medications.yaml into {id -> Medication} and run intrinsic checks.
     """
-    raw = load_yaml(path)
-    if not isinstance(raw, list):
+    raw_data = load_yaml(path)
+    if not isinstance(raw_data, list):
         raise ValueError(f"{path.name} must be a YAML list")
-    items: List[Medication] = []
+    items_list: List[Medication] = []
     all_errs: List[str] = []
-    for i, row in enumerate(raw):
+    for index, row in enumerate(raw_data):
         try:
             m = Medication.model_validate(row)
             msgs = m.intrinsic_checks() # Complex business logic check
             if msgs:
                 all_errs.extend([f"med {m.id}: {msg}" for msg in msgs])
-            items.append(m)
+            items_list.append(m)
         except ValidationError as e:
-            raise ValueError(f"medications[{i}] invalid: {e}") from e
+            raise ValueError(f"medications[{index}] invalid: {e}") from e
     if all_errs:
         # Raise with a consolidated message; easier to fix in one pass.
         raise ValueError("Medication intrinsic errors:\n- " + "\n- ".join(all_errs))
-    return _index_by_id(items, "medication")
+    return _index_by_id(items_list, "medication")
 
 
 # ---------------------------
@@ -403,8 +404,8 @@ def cross_check(
     containers_list: Dict[str, Container],
 ) -> List[str]:
     """
-    Validate relationships *between* files. We return a list of human-friendly
-    errors so the UI can display them without crashing.
+    Validate relationships *between* different YAML files are correct. 
+    We return a list of human-friendly errors so the UI can display them without crashing.
     """
     error_list: List[str] = []
 
@@ -452,12 +453,12 @@ def cross_check(
 # ---------------------------
 def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tuple[str, str, str, dict[str, str]]:
     """
-    Compare actual file hashes vs manifest. Return:
-      (status, badge_text, rules_version, actual_hashes)
-    status: "ok" or "mismatch"
-    badge_text: "Rules {version} • <short>" or "... • MISMATCH"
-    rules_version: from manifest (or "unknown" if absent)
-    actual_hashes: map of filename -> sha256 (for printing/writing later)
+    Compare actual file hashes vs rules_manifest. 
+    Return: (status, badge_text, rules_version, actual_hashes)
+    - status: "ok" or "mismatch"
+    - badge_text: "Rules {version} • <short>" or "... • MISMATCH"
+    - rules_version: from manifest (or "unknown" if absent)
+    - actual_hashes: map of filename -> sha256 (for printing/writing later)
     """
     # Read manifest
     try:
@@ -475,11 +476,16 @@ def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tup
     actual: dict[str, str] = {}
     mismatches: list[str] = []
     for name, path in data_paths.items():
+        # check if file exists
         if not path.exists():
             mismatches.append(f"{name}: missing")
             continue
+
+        # If file exist, calculate SHA-256 hash of file content
         actual[name] = sha256_hex(path)
         exp = expected.get(name)
+
+        # compare the expected hash with matching file name to the file content
         if not exp or exp.lower().strip() != actual[name].lower().strip():
             mismatches.append(f"{name}: mismatch")
 
@@ -495,6 +501,7 @@ def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tup
 # Part 7: In-memory state object
 # ---------------------------
 
+# Dataclass use for automatic init and string representation for debugging
 @dataclass
 class RulesState:
     """
@@ -519,12 +526,14 @@ class RulesState:
 # ---------------------------
 def init_rules(rules_dir: Path) -> RulesState:
     """
-    Load all rules files from rules_dir, run cross-checks, and return a RulesState.
-    This function raises on hard parse/shape errors, but *does not* raise on
+    - Load all rules files from rules_dir
+    - Run cross-checks
+    - Return a RulesState.
+    \nThis function raises on hard parse/shape errors, but *does not* raise on
     cross-check issues; those are returned in state.errors for the UI to display.
     """
 
-    # Set all the yaml paths
+    # Set/define all the yaml file paths
     solvents_path = rules_dir / "solvents.yaml"
     containers_path = rules_dir / "containers.yaml"
     meds_path = rules_dir / "medications.yaml"
@@ -560,7 +569,9 @@ def init_rules(rules_dir: Path) -> RulesState:
 
     # Check integrity, comparing the current file hashes vs rules_manifest recorded
     status, badge, version, actual = compute_rules_badge(manifest_path, data_paths)
-    state.version = version
+    
+    # updating the main state object properties with what's retrieved from rules_manifest
+    state.version = version 
     state.badge_text = badge
     # Optional: print actual hashes to help you build/refresh the manifest
     if status != "ok":
