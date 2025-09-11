@@ -318,13 +318,14 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 ## Milestones & Status
 
-- **M1 – Skeleton & Login** ✅  
+- **M1 – Skeleton & Login** ✅ **COMPLETE**  
   Basic routes, kiosk flow, passphrase auth, signed session, idle timeout.
 
-- **M2 – Rules Loader & Integrity** ✅  
-  Pydantic models, cross-checks, SHA-256 badge, startup wiring.
+- **M2 – Rules Loader & Integrity** ✅ **COMPLETE**  
+  Pydantic models, cross-checks, SHA-256 badge, startup wiring.  
+  **Status**: All rules loading correctly (5 meds, 20 containers, 3 solvents), integrity verification working, badge showing `Rules 2025.09.11 • 07136e`.
 
-- **M3 – Compute & Steps Hybrid** ⏳  
+- **M3 – Compute & Steps Hybrid** 📍 **NEXT**  
   Rounding, auto-upsize, powder reconstitution math, step assembly.
 
 - **M4 – PDFs & Preview** 🔜  
@@ -338,6 +339,12 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 - **M7 – Testing & Parity** 🔜  
   Golden cases, parity with Excel, pilot checklist.
+
+**Current Status (as of 2025-09-11):**  
+✅ Foundation complete and working  
+✅ Rules integrity system operational  
+✅ Authentication and session management functional  
+📍 Ready to implement core computation engine
 
 ---
 
@@ -356,6 +363,12 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 - [ ] Round to 0.1 mL; unit-safe arithmetic; block negative/unrealistic results.
 
 ### Rules & Integrity
+- [x] ~~Pydantic models with field validation~~
+- [x] ~~YAML loaders with duplicate detection~~
+- [x] ~~Cross-file validation (solvent references, container compatibility)~~
+- [x] ~~SHA-256 integrity checking vs rules_manifest.yaml~~
+- [x] ~~Rules badge display in UI (`Rules 2025.09.11 • 07136e`)~~
+- [x] ~~Startup integrity verification and console logging~~
 - [ ] JSON Schema for YAML; friendly errors surfaced in UI.
 - [ ] `/editor/validate` + `/editor/freeze` endpoints; write manifest; bump `rules_version`.
 - [ ] Rules badge everywhere (page header & PDF footer).
