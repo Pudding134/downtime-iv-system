@@ -453,27 +453,27 @@ def cross_check(
 # ---------------------------
 def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tuple[str, str, str, dict[str, str]]:
     """
-    Compare actual file hashes vs rules_manifest. 
-    Return: (status, badge_text, rules_version, actual_hashes)
+    Compare actual_manifest file hashes vs rules_manifest. 
+    Return: (status, badge_text, rules_rules_version, actual_manifest_hashes)
     - status: "ok" or "mismatch"
-    - badge_text: "Rules {version} • <short>" or "... • MISMATCH"
-    - rules_version: from manifest (or "unknown" if absent)
-    - actual_hashes: map of filename -> sha256 (for printing/writing later)
+    - badge_text: "Rules {rules_version} • <short>" or "... • MISMATCH"
+    - rules_rules_version: from manifest (or "unknown" if absent)
+    - actual_manifest_hashes: map of filename -> sha256 (for printing/writing later)
     """
     # Read manifest
     try:
         manifest = load_yaml(manifest_path)
     except Exception:
         # No manifest or bad YAML
-        version = "unknown"
-        actual = {name: sha256_hex(p) for name, p in data_paths.items() if p.exists()}
-        return "mismatch", f"Rules {version} • MISMATCH", version, actual
+        rules_version = "unknown"
+        actual_manifest = {name: sha256_hex(p) for name, p in data_paths.items() if p.exists()}
+        return "mismatch", f"Rules {rules_version} • MISMATCH", rules_version, actual_manifest
 
-    version = str(manifest.get("rules_version", "unknown"))
+    rules_version = str(manifest.get("rules_version", "unknown"))
     expected: dict[str, str] = manifest.get("files", {}) or {}
 
-    # Compute actual hashes
-    actual: dict[str, str] = {}
+    # Compute actual_manifest hashes
+    actual_manifest: dict[str, str] = {}
     mismatches: list[str] = []
     for name, path in data_paths.items():
         # check if file exists
@@ -482,19 +482,22 @@ def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tup
             continue
 
         # If file exist, calculate SHA-256 hash of file content
-        actual[name] = sha256_hex(path)
-        exp = expected.get(name)
+        actual_manifest[name] = sha256_hex(path)
+        expected_manifest = expected.get(name)
 
-        # compare the expected hash with matching file name to the file content
-        if not exp or exp.lower().strip() != actual[name].lower().strip():
+        # Compare hashes (normalize by stripping "sha256:" prefix if present)
+        actual_hex = actual_manifest[name].lower().strip()
+        expected_hex = expected_manifest.replace("sha256:", "").lower().strip() if expected_manifest else ""
+        
+        if not expected_manifest or expected_hex != actual_hex:
             mismatches.append(f"{name}: mismatch")
 
     if mismatches:
-        return "mismatch", f"Rules {version} • MISMATCH", version, actual
+        return "mismatch", f"Rules {rules_version} • MISMATCH", rules_version, actual_manifest
 
     # All good → short hash from the manifest file itself
     short = sha256_hex(manifest_path)[:6]
-    return "ok", f"Rules {version} • {short}", version, actual
+    return "ok", f"Rules {rules_version} • {short}", rules_version, actual_manifest
 
 
 # ---------------------------
@@ -509,14 +512,14 @@ class RulesState:
     - counts: quick visibility in logs
     - maps: fast lookups by id
     - errors: cross-check output (empty means OK)
-    - version/badge are filled in T3 (manifest/hash)
+    - rules_version/badge are filled in T3 (manifest/hash)
     """
     meds: Dict[str, Medication]
     containers: Dict[str, Container]
     solvents: Dict[str, Solvent]
     counts: Tuple[int, int, int]
     errors: List[str]
-    version: Optional[str] = None          # T3 fills from rules_manifest.yaml
+    rules_version: Optional[str] = None          # T3 fills from rules_manifest.yaml
     badge_text: str = "Rules — not loaded" # T3 sets real badge
 
 
@@ -554,7 +557,7 @@ def init_rules(rules_dir: Path) -> RulesState:
         solvents=solvents,
         counts=(len(meds), len(containers), len(solvents)),
         errors=errs,
-        # version/badge will be populated in T3
+        # rules_version/badge will be populated in T3
     )
 
     # --- Integrity badge (T3) ---
@@ -568,15 +571,15 @@ def init_rules(rules_dir: Path) -> RulesState:
     }
 
     # Check integrity, comparing the current file hashes vs rules_manifest recorded
-    status, badge, version, actual = compute_rules_badge(manifest_path, data_paths)
+    status, badge, rules_version, actual_manifest = compute_rules_badge(manifest_path, data_paths)
     
     # updating the main state object properties with what's retrieved from rules_manifest
-    state.version = version 
+    state.rules_version = rules_version 
     state.badge_text = badge
-    # Optional: print actual hashes to help you build/refresh the manifest
+    # Optional: print actual_manifest hashes to help you build/refresh the manifest
     if status != "ok":
         print("[rules] Integrity: MISMATCH")
-        for k, v in actual.items():
+        for k, v in actual_manifest.items():
             print(f"  {k}: sha256:{v}")
     else:
         print(f"[rules] Integrity: OK • {badge}")
