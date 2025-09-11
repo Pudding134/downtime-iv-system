@@ -354,19 +354,19 @@ def load_containers(path: Path) -> Dict[str, Container]:
     if not isinstance(raw_data, list):
         raise ValueError(f"{path.name} must be a YAML list")
     items_list: List[Container] = []
-    intrinsic_errors: List[str] = [] # List variable to collect all errors
+    intrinsic_errors_list: List[str] = [] # List variable to collect all errors
     for index, row in enumerate(raw_data):
         try:
             container = Container.model_validate(row)
             msgs = container.intrinsic_checks() # Call the business logic validation from Container class
             if msgs:
-                intrinsic_errors.extend([f"container {container.id}: {m}" for m in msgs])
+                intrinsic_errors_list.extend([f"container {container.id}: {m}" for m in msgs])
             items_list.append(container)
         except ValidationError as e:
             raise ValueError(f"containers[{index}] invalid: {e}") from e
-    if intrinsic_errors:
+    if intrinsic_errors_list:
         # We raise here so the user fixes container shapes before cross-checks.
-        raise ValueError("Container shape errors:\n- " + "\n- ".join(intrinsic_errors))
+        raise ValueError("Container shape errors:\n- " + "\n- ".join(intrinsic_errors_list))
     return _index_by_id(items_list, "container")
 
 
@@ -378,19 +378,19 @@ def load_medications(path: Path) -> Dict[str, Medication]:
     if not isinstance(raw_data, list):
         raise ValueError(f"{path.name} must be a YAML list")
     items_list: List[Medication] = []
-    all_errs: List[str] = []
+    errors_list: List[str] = []
     for index, row in enumerate(raw_data):
         try:
-            m = Medication.model_validate(row)
-            msgs = m.intrinsic_checks() # Complex business logic check
+            med = Medication.model_validate(row)
+            msgs = med.intrinsic_checks() # Complex business logic check
             if msgs:
-                all_errs.extend([f"med {m.id}: {msg}" for msg in msgs])
-            items_list.append(m)
+                errors_list.extend([f"med {med.id}: {msg}" for msg in msgs])
+            items_list.append(med)
         except ValidationError as e:
             raise ValueError(f"medications[{index}] invalid: {e}") from e
-    if all_errs:
+    if errors_list:
         # Raise with a consolidated message; easier to fix in one pass.
-        raise ValueError("Medication intrinsic errors:\n- " + "\n- ".join(all_errs))
+        raise ValueError("Medication intrinsic errors:\n- " + "\n- ".join(errors_list))
     return _index_by_id(items_list, "medication")
 
 
