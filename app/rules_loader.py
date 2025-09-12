@@ -454,10 +454,10 @@ def cross_check(
 def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tuple[str, str, str, dict[str, str]]:
     """
     Compare actual_manifest file hashes vs rules_manifest. 
-    Return: (status, badge_text, rules_rules_version, actual_manifest_hashes)
+    Return: (status, badge_text, rules_version, actual_manifest_hashes)
     - status: "ok" or "mismatch"
     - badge_text: "Rules {rules_version} • <short>" or "... • MISMATCH"
-    - rules_rules_version: from manifest (or "unknown" if absent)
+    - rules_version: from manifest (or "unknown" if absent)
     - actual_manifest_hashes: map of filename -> sha256 (for printing/writing later)
     """
     # Read manifest
