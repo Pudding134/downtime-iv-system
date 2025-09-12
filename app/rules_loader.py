@@ -455,7 +455,7 @@ def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tup
     """
     Compare actual_manifest file hashes vs rules_manifest. 
     Return: (status, badge_text, rules_version, actual_manifest_hashes)
-    - status: "ok" or "mismatch"
+    - status: "ok" | "mismatch" | "missing"
     - badge_text: "Rules {rules_version} • <short>" or "... • MISMATCH"
     - rules_version: from manifest (or "unknown" if absent)
     - actual_manifest_hashes: map of filename -> sha256 (for printing/writing later)
@@ -467,7 +467,7 @@ def compute_rules_badge(manifest_path: Path, data_paths: dict[str, Path]) -> tup
         # No manifest or bad YAML
         rules_version = "unknown"
         actual_manifest = {name: sha256_hex(p) for name, p in data_paths.items() if p.exists()}
-        return "mismatch", f"Rules {rules_version} • MISMATCH", rules_version, actual_manifest
+        return "missing", "Rules - manifest missing" , rules_version, actual_manifest
 
     rules_version = str(manifest.get("rules_version", "unknown"))
     expected: dict[str, str] = manifest.get("files", {}) or {}
@@ -512,6 +512,7 @@ class RulesState:
     - counts: quick visibility in logs
     - maps: fast lookups by id
     - errors: cross-check output (empty means OK)
+    - integrity: fast single source of truth whether rules are ready
     - rules_version/badge are filled in T3 (manifest/hash)
     """
     meds: Dict[str, Medication]
@@ -519,6 +520,7 @@ class RulesState:
     solvents: Dict[str, Solvent]
     counts: Tuple[int, int, int]
     errors: List[str]
+    integrity: Literal["ok","mismatch","missing"] = "missing" # added for eash quick glance as to whether rules are ready
     rules_version: Optional[str] = None          # T3 fills from rules_manifest.yaml
     badge_text: str = "Rules — not loaded" # T3 sets real badge
 
@@ -576,13 +578,14 @@ def init_rules(rules_dir: Path) -> RulesState:
     # updating the main state object properties with what's retrieved from rules_manifest
     state.rules_version = rules_version 
     state.badge_text = badge
+    state.integrity = status
     # Optional: print actual_manifest hashes to help you build/refresh the manifest
     if status != "ok":
-        print("[rules] Integrity: MISMATCH")
+        print(f"[rules] Integrity: {status.upper()}, version = {rules_version}") # print MISMATCH or MISSING
         for k, v in actual_manifest.items():
             print(f"  {k}: sha256:{v}")
     else:
-        print(f"[rules] Integrity: OK • {badge}")
+        print(f"[rules] Integrity: OK, version = {rules_version} • {badge}")
 
     # Minimal console output so you see what's loaded during dev
     print(f"[rules] Loaded: {state.counts[0]} meds, {state.counts[1]} containers, {state.counts[2]} solvents")

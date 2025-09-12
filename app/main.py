@@ -1,3 +1,5 @@
+from pydantic import BaseModel
+from typing import Literal
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Annotated
@@ -5,6 +7,23 @@ from .auth import authenticate_admin, make_session, read_session, is_fresh
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from .rules_loader import RulesState, init_rules
+
+class RulesStatus(BaseModel):
+    """
+    To force returned RulesStatus response into this particular shape.
+    - version: Rules version
+    - integrity: Fast single source of truth whether rules are ready # ["ok", "mismatch", "missing"]
+    - badge: Rules badge
+    - counts: Count of each category # {"meds": int, "containers": int, "solvents": int}
+    - num_errors: Number of errors caught
+    - errors: list of caught errors against the rules
+    """
+    version: str | None
+    integrity: Literal["ok", "mismatch", "missing"]
+    badge: str
+    counts: dict  # {"meds": int, "containers": int, "solvents": int}
+    num_errors: int
+    errors: list[str]
 
 TEMPLATES = Environment(
     loader=FileSystemLoader(Path(__file__).parent / "views"),
@@ -18,7 +37,7 @@ def render(name: str, **ctx):
 app = FastAPI(title="Downtime-IV-System", version="0.1.0")
 
 RULES_STATE: RulesState | None = None
-RULES_BADGE = "Rules — not loaded"
+RULES_BADGE = "Rules - not loaded"
 
 @app.on_event("startup")
 def _load_rules():
@@ -27,7 +46,30 @@ def _load_rules():
     # For T2.1 we only show counts/OK; T3 will set a real badge from manifest.
     RULES_BADGE = RULES_STATE.badge_text
 
-@ app.get("/", response_class=HTMLResponse)
+@app.get("/rules/status", response_model=RulesStatus)
+def rules_status():
+    """
+    Read-only health/status for the installed Data Pack.
+    Safe to call as Guest; Admin UI will also use this.
+    """
+    counts = {
+        "meds": RULES_STATE.counts[0],
+        "containers": RULES_STATE.counts[1],
+        "solvents": RULES_STATE.counts[2]
+    }
+    errors_list = RULES_STATE.errors or []
+    payload = {
+        "version": RULES_STATE.rules_version, 
+        "integrity": RULES_STATE.integrity, 
+        "badge": RULES_STATE.badge_text,
+        "counts": counts,
+        "num_errors": len(errors_list),
+        "errors": errors_list[:5] # cap to the first 5 errors in the list
+    }
+    return payload
+
+
+@app.get("/", response_class=HTMLResponse)
 def root():
     errors = RULES_STATE.errors if (RULES_STATE and RULES_STATE.errors) else []
     return render("home_guest.html", rules_badge=RULES_BADGE, rules_errors=errors)
