@@ -1,6 +1,29 @@
 # Downtime IV — Compounding Worksheets & Labels
 
-An **offline**, Windows-first app that generates IV medication **compounding instruction worksheets (A4 PDF)** and **sticky labels (Datamax label PDF)** for downtime scenarios. Runs as a **local HTTP app** (FastAPI + Jinja2), with **Guest** (read-only) and **Admin** (editor) roles. Rules are **YAML data packs** with **SHA-256 integrity** and **version badges**.
+An **offline**, Windows-first app that generates IV medication **compounding instruction worksheets (A4 PDF)** and **sticky labels (Datamax label PDF)** for downtime scenarios. Runs as a **local HTTP app** (FastAPI + Jinja2), with **Guest** (read-only) and **Admin** (editor) roles. Rules are **YAML data packs** with **SHA-256### Compute Engine
+- [x] ~~Core volume calculations for solution medications~~
+- [x] ~~Powder medication logic: vial calculations, reconstitution volumes~~  
+- [x] ~~Concentration validation against medication ranges~~
+- [x] ~~Solvent compatibility checking~~
+- [x] ~~Safety warnings for out-of-range concentrations and incompatible solvents~~
+- [x] ~~Syringe usable volume (`capacity * usable_fraction`)~~
+- [x] ~~Round to 0.1 mL precision~~
+- [ ] Headroom logic: compute `v_withdraw_ml` vs available headspace.
+- [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
+- [ ] Step assembly from `steps_library.yaml` + `sequences.yaml`.
+
+### Rules & Integrity
+- [x] ~~Pydantic models with field validation~~
+- [x] ~~YAML loaders with duplicate detection~~
+- [x] ~~Cross-file validation (solvent references, container compatibility)~~
+- [x] ~~SHA-256 integrity checking vs rules_manifest.yaml~~
+- [x] ~~Rules badge display in UI (`Rules 2025.09.11 • 07136e`)~~
+- [x] ~~Startup integrity verification and console logging~~
+- [x] ~~JSON API endpoint (`GET /rules/status`) with structured health data~~
+- [x] ~~RulesStatus Pydantic model for API responses~~
+- [ ] JSON Schema for YAML; friendly errors surfaced in UI.
+- [ ] `/editor/validate` + `/editor/freeze` endpoints; write manifest; bump `rules_version`.
+- [ ] Rules badge everywhere (page header & PDF footer).**version badges**.
 
 > **Clinical safety note**  
 > This tool assists trained pharmacy staff. Does **not** replace clinical judgment. Validate outputs via SOP, double-check concentrations/compatibility, and follow local policies.
@@ -230,19 +253,36 @@ defaults:
 
 ## Endpoints
 
+### Core Routes
 - `GET /` → Guest home (compute UI).  
 - `GET /admin/login` → login form.  
 - `POST /admin/login` → validate passphrase → set signed cookie → 303 to `/admin`.  
 - `GET /admin` → Admin home (requires fresh session).  
 - `POST /admin/logout` → clear session.  
-- `GET /rules/status` → badge + counts (later JSON).  
+
+### API Routes  
+- `GET /rules/status` → **JSON health check** with integrity status, version, counts, and errors.  
 - `POST /compute` → compute numbers & warnings (JSON used by preview).  
 - `POST /preview/worksheet` → temp PDF; `POST /export/worksheet` → final PDF.  
-- `GET /editor/*` → Admin editor pages (M5).  
+
+### Admin Routes (M5)
+- `GET /editor/*` → Admin editor pages.  
 - `POST /editor/validate` → run schema + cross-checks.  
 - `POST /editor/freeze` → recompute hashes, bump version, write manifest + changelog.  
 - `POST /datapack/import` → validate + install ZIP; backup current.  
 - `POST /rollback` → restore previous pack.
+
+#### Rules Status API Response
+```json
+{
+  "version": "2025.09.11",
+  "integrity": "ok|mismatch|missing", 
+  "badge": "Rules 2025.09.11 • a1b2c3",
+  "counts": {"meds": 5, "containers": 20, "solvents": 3},
+  "num_errors": 0,
+  "errors": []
+}
+```
 
 ---
 
@@ -322,11 +362,12 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
   Basic routes, kiosk flow, passphrase auth, signed session, idle timeout.
 
 - **M2 – Rules Loader & Integrity** ✅ **COMPLETE**  
-  Pydantic models, cross-checks, SHA-256 badge, startup wiring.  
-  **Status**: All rules loading correctly (5 meds, 20 containers, 3 solvents), integrity verification working, badge showing `Rules 2025.09.11 • 07136e`.
+  Pydantic models, cross-checks, SHA-256 badge, startup wiring, JSON status API.  
+  **Status**: All rules loading correctly (5 meds, 20 containers, 3 solvents), integrity verification working, badge showing `Rules 2025.09.11 • 07136e`. JSON API at `/rules/status` provides structured health data.
 
-- **M3 – Compute & Steps Hybrid** 📍 **NEXT**  
-  Rounding, auto-upsize, powder reconstitution math, step assembly.
+- **M3 – Compute & Steps Hybrid** 📍 **IN PROGRESS**  
+  Volume calculations, concentration validation, step assembly.  
+  **Status**: Core compute engine implemented and tested for solution/powder medications with safety warnings.
 
 - **M4 – PDFs & Preview** 🔜  
   A4 + label PDFs via ReportLab, embedded preview, footer badge.
@@ -340,11 +381,12 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 - **M7 – Testing & Parity** 🔜  
   Golden cases, parity with Excel, pilot checklist.
 
-**Current Status (as of 2025-09-11):**  
-✅ Foundation complete and working  
-✅ Rules integrity system operational  
+**Current Status (as of 2025-09-12):**  
+✅ Foundation and API infrastructure complete  
+✅ Rules integrity system with JSON health endpoints  
 ✅ Authentication and session management functional  
-📍 Ready to implement core computation engine
+✅ Core compute engine working (solution + powder medications)  
+📍 Ready to wire compute engine into web UI and implement PDF generation
 
 ---
 
