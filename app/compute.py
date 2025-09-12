@@ -54,13 +54,20 @@ class ComputeResult:
     # Resolved objects from rules
     medication: Medication
     container: Container
-    final_solvent: Solvent  # The solvent we're using for dilution
     
-    # Core computed values
+    # Core computed values (no defaults)
     final_concentration_mg_per_ml: float
     final_volume_ml: float
     drug_volume_ml: float           # mL of drug solution to add
     withdraw_volume_ml: float       # mL to withdraw for headroom (if any)
+    
+    # Safety and validation (no defaults)
+    warnings: List[str]
+    errors: List[str]
+    steps: List[str]
+    
+    # Fields with defaults
+    final_solvent: Optional[Solvent] = None  # The solvent we're using for dilution
     
     # For powder medications
     n_vials: int = 0
@@ -69,14 +76,9 @@ class ComputeResult:
     stock_total_ml: float = 0.0        # total reconstituted volume
     stock_leftover_ml: float = 0.0     # unused reconstituted volume
     
-    # Safety and validation
-    warnings: List[str]
-    errors: List[str]
+    # Safety flags
     concentration_in_range: bool = True
     solvent_compatible: bool = True
-    
-    # Step-by-step instructions
-    steps: List[str]
     
     # Container adjustment (if auto-upsized)
     container_changed: bool = False
@@ -292,15 +294,12 @@ def compute_protocol(
             input_data=compute_input,
             medication=None,
             container=None,
-            final_solvent=None,
             final_concentration_mg_per_ml=0,
             final_volume_ml=0,
             drug_volume_ml=0,
             withdraw_volume_ml=0,
             warnings=[],
             errors=[f"Unknown medication ID: {compute_input.medication_id}"],
-            concentration_in_range=False,
-            solvent_compatible=False,
             steps=[]
         )
     
@@ -309,15 +308,12 @@ def compute_protocol(
             input_data=compute_input,
             medication=rules_state.meds[compute_input.medication_id],
             container=None,
-            final_solvent=None,
             final_concentration_mg_per_ml=0,
             final_volume_ml=0,
             drug_volume_ml=0,
             withdraw_volume_ml=0,
             warnings=[],
             errors=[f"Unknown container ID: {compute_input.container_id}"],
-            concentration_in_range=False,
-            solvent_compatible=False,
             steps=[]
         )
     
