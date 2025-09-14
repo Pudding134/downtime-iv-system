@@ -1,13 +1,20 @@
 # Downtime IV — Compounding Worksheets & Labels
 
 An **offline**, Windows-first app that generates IV medication **compounding instruction worksheets (A4 PDF)** and **sticky labels (Datamax label PDF)** for downtime scenarios. Runs as a **local HTTP app** (FastAPI + Jinja2), with **Guest** (read-only) and **Admin** (editor) roles. Rules are **YAML data packs** with **SHA-256### Compute Engine
-- [x] ~~Core volume calculations for solution medications~~
+- [x] ~~### Compute Engine
+- [x] ~~Implement syringe usable volume (`capacity * usable_fraction`)~~
+- [x] ~~Multiple preparations support with optimized vial calculations~~
+- [ ] Headroom logic: compute `v_withdraw_ml` vs available headspace.
+- [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
+- [x] ~~Powder path: `n_vials`, `reconst_per_vial_ml`, `stock_total_ml`, `stock_leftover_ml`~~
+- [x] ~~Round to 0.1 mL; unit-safe arithmetic; block negative/unrealistic results~~olume calculations for solution medications~~
 - [x] ~~Powder medication logic: vial calculations, reconstitution volumes~~  
 - [x] ~~Concentration validation against medication ranges~~
 - [x] ~~Solvent compatibility checking~~
 - [x] ~~Safety warnings for out-of-range concentrations and incompatible solvents~~
 - [x] ~~Syringe usable volume (`capacity * usable_fraction`)~~
 - [x] ~~Round to 0.1 mL precision~~
+- [x] ~~Multiple preparations support with batch vial optimization~~
 - [ ] Headroom logic: compute `v_withdraw_ml` vs available headspace.
 - [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
 - [ ] Step assembly from `steps_library.yaml` + `sequences.yaml`.
@@ -233,12 +240,52 @@ defaults:
 
 ## Compute & Steps (overview)
 
+- **Multiple Preparations:** Support for batch compounding scenarios (e.g., 3 identical syringes). System optimizes vial usage across all preparations to minimize waste.
 - **Rounding:** 0.1 mL (configurable).  
 - **Auto-upsize:** if final volume > capacity or headroom insufficient → next suitable container.  
 - **Final volume default:** equals container prefill (Admin can enable override per med/session).  
 - **Concentration checks:** warn or block based on policy (out-of-range → warn; incompatible solvent → block).  
 - **Powder workflow:** compute `n_vials`, `reconst_per_vial_ml`, pooled `stock_total_ml`, and `stock_leftover_ml`.  
+- **Batch optimization:** For powder medications, calculates minimum vials needed across all preparations to reduce waste.
 - **Steps assembly:** sequence + conditional steps + per-med insertions → render to PDF text blocks.
+
+---
+
+## Multiple Preparations Feature
+
+The system supports **batch compounding scenarios** where pharmacists need to prepare multiple identical preparations (e.g., 3 syringes of the same medication for a patient or multiple patients with the same dosing).
+
+### Key Benefits
+
+- **Vial Optimization**: Automatically calculates the minimum number of vials needed across all preparations to minimize waste
+- **Batch Efficiency**: Computes total volumes and doses for the entire batch
+- **Cost Savings**: Reduces medication waste by optimizing reconstituted medication usage
+- **Time Savings**: Single calculation session for multiple identical preparations
+
+### How It Works
+
+**Input**: Add `num_preparations` field to specify how many identical preparations to make (default: 1)
+
+**For Solution Medications**:
+- Calculates total drug volume needed across all preparations
+- Determines minimum vials required based on total volume
+- Provides per-preparation and total calculations
+
+**For Powder Medications**:
+- Calculates total dose needed: `total_dose_mg = dose_mg × num_preparations`
+- Optimizes vial count: `vials_needed = ceil(total_dose_mg ÷ vial_strength_mg)`
+- Computes reconstitution volumes based on total vial count
+- Tracks leftover reconstituted medication to minimize waste
+
+### Example Scenarios
+
+**Scenario 1**: 3 identical 50mL syringes of Paclitaxel 150mg
+- Input: `num_preparations = 3`, single preparation requirements
+- Output: Total drug volume, optimized vial count, batch instructions
+
+**Scenario 2**: 5 bags of Oxaliplatin for multiple patients with same dosing
+- Input: `num_preparations = 5`, standard dose/concentration
+- Output: Minimized vial waste, total preparation requirements
 
 ---
 
@@ -365,9 +412,9 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
   Pydantic models, cross-checks, SHA-256 badge, startup wiring, JSON status API.  
   **Status**: All rules loading correctly (5 meds, 20 containers, 3 solvents), integrity verification working, badge showing `Rules 2025.09.11 • 07136e`. JSON API at `/rules/status` provides structured health data.
 
-- **M3 – Compute & Steps Hybrid** 📍 **IN PROGRESS**  
+- **M3 – Compute & Steps Hybrid** ✅ **COMPLETE**  
   Volume calculations, concentration validation, step assembly.  
-  **Status**: Core compute engine implemented and tested for solution/powder medications with safety warnings.
+  **Status**: Core compute engine implemented and tested for solution/powder medications with safety warnings. Multiple preparations support added with batch vial optimization for efficient compounding workflows.
 
 - **M4 – PDFs & Preview** 🔜  
   A4 + label PDFs via ReportLab, embedded preview, footer badge.
@@ -381,11 +428,12 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 - **M7 – Testing & Parity** 🔜  
   Golden cases, parity with Excel, pilot checklist.
 
-**Current Status (as of 2025-09-12):**  
+**Current Status (as of 2025-09-14):**  
 ✅ Foundation and API infrastructure complete  
 ✅ Rules integrity system with JSON health endpoints  
 ✅ Authentication and session management functional  
 ✅ Core compute engine working (solution + powder medications)  
+✅ Multiple preparations support with batch vial optimization  
 📍 Ready to wire compute engine into web UI and implement PDF generation
 
 ---
@@ -394,6 +442,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 ### App & UI
 - [ ] Guest UI: medication + container + solvent selectors; patient fields (not stored).
+- [ ] Multiple preparations input field for batch compounding scenarios.
 - [ ] Warning banners for out-of-range concentration / incompatible solvent.
 - [ ] PDF preview pane (worksheet/label) with regenerate button.
 

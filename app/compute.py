@@ -38,6 +38,7 @@ class ComputeInput:
     medication_id: str
     container_id: str
     dose_mg: float
+    num_preparations: int = 1  # Number of identical preparations to make
     final_volume_ml: Optional[float] = None  # if None, use container capacity
     patient_name: str = ""
     patient_hrn: str = ""
@@ -76,6 +77,11 @@ class ComputeResult:
     stock_total_ml: float = 0.0        # total reconstituted volume
     stock_leftover_ml: float = 0.0     # unused reconstituted volume
     
+    # Multiple preparations scaling
+    total_drug_volume_ml: float = 0.0        # drug_volume_ml × num_preparations
+    total_vials_needed: int = 0              # Total vials across all preparations
+    total_dose_mg: float = 0.0               # dose_mg × num_preparations
+    
     # Safety flags
     concentration_in_range: bool = True
     solvent_compatible: bool = True
@@ -102,8 +108,9 @@ def calculate_solution_volumes(
     med: Medication,
     container: Container,
     dose_mg: float,
-    target_volume_ml: float
-) -> tuple[float, float, float, List[str]]:
+    target_volume_ml: float,
+    num_preparations: int = 1
+) -> tuple[float, float, float, int, List[str]]:
     """
     SPEC: Calculate volumes for solution medications.
     
@@ -112,24 +119,33 @@ def calculate_solution_volumes(
         container: Target container
         dose_mg: Required dose in mg
         target_volume_ml: Desired final volume
+        num_preparations: Number of preparations to make
     
     Returns:
-        (drug_volume_ml, withdraw_volume_ml, final_conc_mg_per_ml, warnings)
+        (drug_volume_ml, withdraw_volume_ml, final_conc_mg_per_ml, n_vials, warnings)
     
     Logic:
         1. Stock concentration = med.stock.amount_mg / med.stock.volume_ml
         2. Drug volume needed = dose_mg / stock_concentration
         3. Final concentration = dose_mg / target_volume_ml
         4. Withdraw volume = max(0, drug_volume - available_headroom)
+        5. Calculate vials needed for all preparations
     """
     warnings = []
     
     # Stock concentration (mg/mL)
     stock_conc = med.stock.amount_mg / med.stock.volume_ml
     
-    # Volume of drug solution needed (mL)
+    # Volume of drug solution needed per preparation (mL)
     drug_volume_ml = dose_mg / stock_conc
     drug_volume_ml = round_to_decimal(drug_volume_ml)
+    
+    # Total drug volume needed for all preparations
+    total_drug_volume_ml = drug_volume_ml * num_preparations
+    
+    # Calculate number of vials needed
+    # Each vial provides med.stock.volume_ml of solution
+    n_vials = math.ceil(total_drug_volume_ml / med.stock.volume_ml)
     
     # Final concentration after dilution
     final_conc_mg_per_ml = dose_mg / target_volume_ml
@@ -159,15 +175,18 @@ def calculate_solution_volumes(
         warnings.append("Drug volume is zero or negative")
     if final_conc_mg_per_ml <= 0:
         warnings.append("Final concentration is zero or negative")
+    if n_vials <= 0:
+        warnings.append("Number of vials is zero or negative")
     
-    return drug_volume_ml, withdraw_volume_ml, final_conc_mg_per_ml, warnings
+    return drug_volume_ml, withdraw_volume_ml, final_conc_mg_per_ml, n_vials, warnings
 
 
 def calculate_powder_volumes(
     med: Medication,
     container: Container,
     dose_mg: float,
-    target_volume_ml: float
+    target_volume_ml: float,
+    num_preparations: int = 1
 ) -> tuple[int, float, float, float, float, float, float, List[str]]:
     """
     SPEC: Calculate volumes for powder medications requiring reconstitution.
@@ -178,8 +197,11 @@ def calculate_powder_volumes(
     """
     warnings = []
     
-    # How many vials do we need?
-    n_vials = math.ceil(dose_mg / med.stock.amount_mg)
+    # Calculate total dose needed for all preparations
+    total_dose_mg = dose_mg * num_preparations
+    
+    # How many vials do we need for all preparations?
+    n_vials = math.ceil(total_dose_mg / med.stock.amount_mg)
     
     # Reconstitution volume per vial
     reconst_per_vial_ml = med.reconstitution.volume_ml
@@ -190,12 +212,16 @@ def calculate_powder_volumes(
     # Total reconstituted volume
     stock_total_ml = n_vials * reconst_per_vial_ml
     
-    # Volume of reconstituted drug needed
+    # Volume of reconstituted drug needed for all preparations
+    total_drug_volume_ml = total_dose_mg / stock_conc_mg_per_ml
+    total_drug_volume_ml = round_to_decimal(total_drug_volume_ml)
+    
+    # Volume needed per single preparation
     drug_volume_ml = dose_mg / stock_conc_mg_per_ml
     drug_volume_ml = round_to_decimal(drug_volume_ml)
     
     # Leftover reconstituted volume
-    stock_leftover_ml = stock_total_ml - drug_volume_ml
+    stock_leftover_ml = stock_total_ml - total_drug_volume_ml
     
     # Final concentration
     final_conc_mg_per_ml = dose_mg / target_volume_ml
@@ -331,8 +357,8 @@ def compute_protocol(
     errors = []
     
     if med.presentation == "solution":
-        drug_volume_ml, withdraw_volume_ml, final_conc, vol_warnings = calculate_solution_volumes(
-            med, container, compute_input.dose_mg, final_volume_ml
+        drug_volume_ml, withdraw_volume_ml, final_conc, n_vials_solution, vol_warnings = calculate_solution_volumes(
+            med, container, compute_input.dose_mg, final_volume_ml, compute_input.num_preparations
         )
         warnings.extend(vol_warnings)
         
@@ -352,8 +378,9 @@ def compute_protocol(
                 errors.append("No valid solvent found for empty container")
                 final_solvent = None
         
+        # For solutions, set n_vials from calculation
+        n_vials = n_vials_solution
         # Powder-specific fields remain zero for solutions
-        n_vials = 0
         reconst_per_vial_ml = 0.0
         stock_conc_mg_per_ml = 0.0
         stock_total_ml = 0.0
@@ -362,7 +389,7 @@ def compute_protocol(
     else:  # powder
         (n_vials, reconst_per_vial_ml, stock_conc_mg_per_ml, stock_total_ml,
          drug_volume_ml, withdraw_volume_ml, final_conc, vol_warnings) = calculate_powder_volumes(
-            med, container, compute_input.dose_mg, final_volume_ml
+            med, container, compute_input.dose_mg, final_volume_ml, compute_input.num_preparations
         )
         warnings.extend(vol_warnings)
         stock_leftover_ml = stock_total_ml - drug_volume_ml
@@ -415,6 +442,9 @@ def compute_protocol(
         stock_conc_mg_per_ml=stock_conc_mg_per_ml,
         stock_total_ml=stock_total_ml,
         stock_leftover_ml=stock_leftover_ml,
+        total_drug_volume_ml=drug_volume_ml * compute_input.num_preparations,
+        total_vials_needed=n_vials,
+        total_dose_mg=compute_input.dose_mg * compute_input.num_preparations,
         warnings=warnings,
         errors=errors,
         concentration_in_range=conc_in_range,
