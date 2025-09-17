@@ -15,7 +15,7 @@ Key functions:
 - assemble_steps(): generate instructions from steps_library + sequences
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 
 class ComputeInput(BaseModel):
@@ -26,11 +26,16 @@ class ComputeInput(BaseModel):
     medication_id: str
     container_id: Optional[str] = None # System can auto-select if not given
     solvent: Optional[str] = None # Depends on container/medication
-    dose_mg: float # Total dose required (not per vial)
-    patient_name: Optional[str] = None # For PDF only
-    patient_hrn: Optional[str] = None # For PDF only
-    target_conc_mg_per_ml: Optional[float] = None # Usually calculated
-    num_preparations: int = 1  # Default to single prep
+    dose_mg: float = Field(gt=0, description="Dose in milligrams") # Total dose required (not per vial)
+    patient_name: Optional[str] = Field(default=None, max_length=60) # For PDF only
+    patient_hrn: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9]{9}$") # For PDF only
+    target_conc_mg_per_ml: Optional[float] = Field(default=None, gt=0, description="Product target concentration dose.") # Usually calculated
+    num_preparations: int = Field(default=1, ge=1, le=50, description="Number of identical prep to make.")  # Default to single prep
+
+    model_config = ConfigDict(
+                            extra="forbid", # Forbid extra fields
+                            str_strip_whitespace=True, # Strip leading / trailing whitespace from strings
+                            )  # End of model config
 
 class ComputeOutput(BaseModel):
     """
