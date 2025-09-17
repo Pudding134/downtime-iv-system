@@ -42,9 +42,14 @@ class ComputeOutput(BaseModel):
     Result of computation to return to frontend.
     Includes all details for PDF generation.
     """
-    total_drug_volume_ml: float    # Scales linearly
-    total_vials_needed: int        # Optimized via ceil() function
-    total_dose_mg: float           # Scales linearly
-    steps: list[dict]              # Step-by-step instructions
-    warnings: list[str]            # Any safety warnings
-    notes: Optional[str] = None    # Additional notes
+    # Input echo
+    # resolve items from rules - medication and container details
+    # safety validation (no default)
+    # fields with default
+    # powder meds related fields
+    # multiple prep related fields
+    # safety flags boolean
+    # container adjustment details (if auto-resize)
+
+
+    model_config = ConfigDict()
