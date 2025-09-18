@@ -1,113 +1,109 @@
-# Prefilled bags/bottles (capacity >= prefill_ml)
+# Prefilled bags
 - id: bag_ns_50
+  name: "50 mL Normal Saline Bag"
   kind: bag_prefilled
   capacity_ml: 65
   prefill_ml: 50
   solvent: NS
 
-- id: bag_ns_100
-  kind: bag_prefilled
-  capacity_ml: 120
-  prefill_ml: 100
-  solvent: NS
-
-- id: bag_ns_250
+- id: bag_ns_250  
+  name: "250 mL Normal Saline Bag"
   kind: bag_prefilled
   capacity_ml: 350
   prefill_ml: 250
   solvent: NS
-
-- id: bag_ns_500
-  kind: bag_prefilled
-  capacity_ml: 650
-  prefill_ml: 500
-  solvent: NS
-
-- id: bag_ns_1000
-  kind: bag_prefilled
-  capacity_ml: 1100
-  prefill_ml: 1000
-  solvent: NS
-
-- id: bag_d5_50
-  kind: bag_prefilled
-  capacity_ml: 65
-  prefill_ml: 50
-  solvent: D5
 
 - id: bag_d5_250
+  name: "250 mL Dextrose 5% Bag" 
   kind: bag_prefilled
   capacity_ml: 350
   prefill_ml: 250
   solvent: D5
 
-- id: bag_d5_500
-  kind: bag_prefilled
-  capacity_ml: 650
-  prefill_ml: 500
-  solvent: D5
-
-# Empty EVA bags
-- id: bag_empty_250
-  kind: bag_empty
-  capacity_ml: 350
-
-- id: bag_empty_500
-  kind: bag_empty
-  capacity_ml: 650
-
-# Ecoflac bottles (prefilled with NS)
-- id: ecoflac_ns_100
-  kind: bottle_prefilled
-  capacity_ml: 150
-  prefill_ml: 100
-  solvent: NS
-
-- id: ecoflac_ns_250
-  kind: bottle_prefilled
-  capacity_ml: 300
-  prefill_ml: 250
-  solvent: NS
-
-- id: ecoflac_ns_500
-  kind: bottle_prefilled
+- id: bag_ns_500
+  name: "500 mL Normal Saline Bag"
+  kind: bag_prefilled  
   capacity_ml: 600
   prefill_ml: 500
   solvent: NS
 
-- id: ecoflac_ns_1000
+- id: bag_d5_500
+  name: "500 mL Dextrose 5% Bag"
+  kind: bag_prefilled
+  capacity_ml: 600
+  prefill_ml: 500
+  solvent: D5
+
+# Empty bags
+- id: bag_empty_250
+  name: "250 mL Empty IV Bag"
+  kind: bag_empty
+  capacity_ml: 250
+
+- id: bag_empty_500
+  name: "500 mL Empty IV Bag"  
+  kind: bag_empty
+  capacity_ml: 500
+
+- id: bag_empty_1000
+  name: "1000 mL Empty IV Bag"
+  kind: bag_empty
+  capacity_ml: 1000
+
+# Bottles (Ecoflac)
+- id: bottle_ns_250
+  name: "250 mL Normal Saline Bottle (Ecoflac)"
   kind: bottle_prefilled
-  capacity_ml: 1100
-  prefill_ml: 1000
+  capacity_ml: 250
+  prefill_ml: 250
   solvent: NS
 
-# Syringes (usable volume = capacity * usable_fraction)
-- id: syringe_1
+- id: bottle_d5_250
+  name: "250 mL Dextrose 5% Bottle (Ecoflac)"
+  kind: bottle_prefilled
+  capacity_ml: 250
+  prefill_ml: 250
+  solvent: D5
+
+# Syringes  
+- id: syringe_1ml
+  name: "1 mL Syringe"
   kind: syringe
-  capacity_ml: 1
+  capacity_ml: 1.0
   usable_fraction: 0.8
 
-- id: syringe_5
+- id: syringe_3ml
+  name: "3 mL Syringe"
   kind: syringe
-  capacity_ml: 5
+  capacity_ml: 3.0
   usable_fraction: 0.8
 
-- id: syringe_10
+- id: syringe_5ml
+  name: "5 mL Syringe"
   kind: syringe
-  capacity_ml: 10
+  capacity_ml: 5.0
   usable_fraction: 0.8
 
-- id: syringe_20
+- id: syringe_10ml
+  name: "10 mL Syringe"
   kind: syringe
-  capacity_ml: 20
+  capacity_ml: 10.0
   usable_fraction: 0.8
 
-- id: syringe_30
+- id: syringe_20ml
+  name: "20 mL Syringe"
   kind: syringe
-  capacity_ml: 30
+  capacity_ml: 20.0
   usable_fraction: 0.8
 
-- id: syringe_50
+- id: syringe_50ml
+  name: "50 mL Syringe"
   kind: syringe
-  capacity_ml: 50
+  capacity_ml: 50.0
+  usable_fraction: 0.8
+
+- id: syringe_100ml
+  name: "100 mL Syringe"
+  kind: syringe
+  capacity_ml: 100.0
   usable_fraction: 0.8

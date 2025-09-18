@@ -61,19 +61,17 @@ class Solvent(BaseModel):
 
 class Container(BaseModel):
     """
-    A container 'shape' the protocol may use.
-    - bag_prefilled / bottle_prefilled have a fixed prefill (capacity == prefill).
-    - bag_empty has capacity but no prefill.
-    - syringe has capacity and a usable fraction (e.g., 0.8).
+    Container rule: bags, bottles, syringes with their properties.
     """
     model_config = ConfigDict(extra="forbid")
-
+    
     id: str
+    name: str  # NEW: Human-readable name
     kind: ContainerKind
     capacity_ml: float
+    usable_fraction: float = 1.0  # For syringes, typically 0.8
     prefill_ml: Optional[float] = None
-    solvent: Optional[str] = None
-    usable_fraction: Optional[float] = None
+    solvent: Optional[str] = None  # For prefilled containers
 
     @field_validator("capacity_ml")
     @classmethod
