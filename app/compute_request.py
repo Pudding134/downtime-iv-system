@@ -1,5 +1,5 @@
 """
-app/compute.py
+app/compute_request.py
 M3 — Compute Engine: volume calculations, concentration validation, step assembly.
 
 What this file does:
@@ -32,34 +32,116 @@ from .rules_loader import RulesState, Medication, Container, Solvent
 class ComputeInput(BaseModel):
     """
     User's selections for a compounding request.
-    Patient fields are for PDF only (not persisted).
+    All required fields must be explicitly provided by the user.
     """
+    # Required user selections
     medication_id: str
-    container_id: Optional[str] = None  # System can auto-select if not given
-    solvent: Optional[str] = None  # Depends on container/medication
+    container_id: str  # User must specify container
     dose_mg: float = Field(gt=0, description="Dose in milligrams")
+    patient_name: str = Field(description="Patient name for PDF generation")
+    patient_hrn: str = Field(description="Patient HRN/MRN for PDF generation")
+    
+    # Optional user selections
+    solvent_id: Optional[str] = Field(None, description="Required for syringes and empty containers")
     num_preparations: int = Field(1, ge=1, le=100, description="Number of identical preparations")
     final_volume_ml: Optional[float] = Field(None, gt=0, description="Target volume (uses container capacity if not specified)")
-    patient_name: Optional[str] = None
-    patient_hrn: Optional[str] = None
     target_conc_mg_per_ml: Optional[float] = Field(None, gt=0, description="Target concentration if specified")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "medication_id": "PACLITAXEL",
+                "container_id": "bag_ns_250",
                 "dose_mg": 150.0,
-                "num_preparations": 3,
                 "patient_name": "John Doe",
-                "patient_hrn": "MRN12345"
+                "patient_hrn": "MRN12345",
+                "num_preparations": 1
+            },
+            "description": "IV compounding calculation request - all fields required",
+            "properties": {
+                "patient_name": {"writeOnly": True},  # Hide from response docs
+                "patient_hrn": {"writeOnly": True}
             }
         }
 
     @model_validator(mode='after')
-    def validate_requirements(self):
-        """Custom validation for business rules"""
-        # Add custom validation logic here later if needed
-        # e.g., powder medications might require certain fields
+    def validate_solvent_requirements(self):
+        """
+        Validate that solvent is provided when required for container type.
+        """
+        # Note: We can't validate container.kind here since we don't have rules_state
+        # This validation will be done in compute_protocol()
+        return self
+
+
+class ComputeResult(BaseModel):
+    """
+    Everything needed to generate PDFs and display results.
+    Uses individual field echo instead of full input object for better security.
+    """
+    # Individual input echo (NO PHI) - Safe for logging/caching
+    medication_id: str
+    dose_mg: float
+    num_preparations: int
+    container_id: str  # Always provided by user
+    solvent_id: Optional[str] = None  # Provided by user or auto-determined from prefilled container
+    final_volume_ml: float
+    target_conc_mg_per_ml: Optional[float] = None
+    
+    # Resolved human-readable names for UI display
+    medication_name: str = ""
+    container_name: str = ""  # From container.name in rules
+    solvent_name: str = ""
+
+from .rules_loader import RulesState, Medication, Container, Solvent
+
+
+# ---------------------------
+# Part 1: Input/Output Models
+# ---------------------------
+
+class ComputeInput(BaseModel):
+    """
+    User's selections for a compounding request.
+    All required fields must be explicitly provided by the user.
+    """
+    # Required user selections
+    medication_id: str
+    container_id: str  # User must specify container
+    dose_mg: float = Field(gt=0, description="Dose in milligrams")
+    patient_name: str = Field(description="Patient name for PDF generation")
+    patient_hrn: str = Field(description="Patient HRN/MRN for PDF generation")
+    
+    # Optional user selections
+    solvent_id: Optional[str] = Field(None, description="Required for syringes and empty containers")
+    num_preparations: int = Field(1, ge=1, le=100, description="Number of identical preparations")
+    final_volume_ml: Optional[float] = Field(None, gt=0, description="Target volume (uses container capacity if not specified)")
+    target_conc_mg_per_ml: Optional[float] = Field(None, gt=0, description="Target concentration if specified")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "medication_id": "PACLITAXEL",
+                "container_id": "bag_ns_250",
+                "dose_mg": 150.0,
+                "patient_name": "John Doe",
+                "patient_hrn": "MRN12345",
+                "num_preparations": 1
+            },
+            "description": "IV compounding calculation request - all fields required",
+            "properties": {
+                "patient_name": {"writeOnly": True},  # Hide from response docs
+                "patient_hrn": {"writeOnly": True}
+            }
+        }
+
+    @model_validator(mode='after')
+    def validate_solvent_requirements(self):
+        """
+        Validate that solvent is provided when required for container type.
+        """
+        # Note: We can't validate container.kind here since we don't have rules_state
+        # This validation will be done in compute_protocol()
         return self
 
 
@@ -106,7 +188,7 @@ class ComputeResult(BaseModel):
     # Multiple preparations scaling
     total_drug_volume_ml: float = 0.0        # drug_volume_ml × num_preparations
     total_vials_needed: int = 0              # Total vials across all preparations
-    total_dose_mg: float = 0.0               # dose_mg × num_preparations
+    total_dose_umg: float = 0.0               # dose_mg × num_preparations
     
     # Safety flags
     concentration_in_range: bool = True
@@ -378,63 +460,7 @@ def validate_solvent_compatibility(
 
 
 # ---------------------------
-# Part 4: Auto-selection Logic (NEW)
-# ---------------------------
-
-def auto_select_container(
-    med: Medication,
-    dose_mg: float,
-    rules_state: RulesState,
-    preferred_kind: Optional[str] = None
-) -> Optional[Container]:
-    """
-    Auto-select appropriate container when not specified by user.
-    
-    Logic:
-    1. Filter containers by medication's allowed kinds
-    2. Calculate required volumes 
-    3. Select smallest container that fits
-    4. Prefer specified kind if given
-    """
-    # TODO: Implement smart container selection
-    # For now, return None to require explicit selection
-    return None
-
-
-def auto_select_solvent(
-    med: Medication,
-    container: Container,
-    rules_state: RulesState,
-    use_case: str = "dilution"
-) -> Optional[Solvent]:
-    """
-    Auto-select appropriate solvent when not specified.
-    
-    Logic:
-    1. If container is prefilled, use container's solvent
-    2. If empty container, use first compatible solvent from med.allowed_solvents
-    3. Validate compatibility
-    """
-    if container.kind in {"bag_prefilled", "bottle_prefilled"}:
-        # Use container's solvent
-        if container.solvent and container.solvent in rules_state.solvents:
-            return rules_state.solvents[container.solvent]
-    
-    # For empty containers, use first allowed solvent
-    for solvent_id in med.allowed_solvents:
-        if solvent_id in rules_state.solvents:
-            solvent = rules_state.solvents[solvent_id]
-            # Check if appropriate for use case
-            if use_case == "reconstitution" and solvent.for_reconstitution:
-                return solvent
-            elif use_case == "dilution" and solvent.for_dilution:
-                return solvent
-    
-    return None
-
-
-# ---------------------------
-# Part 5: Main Compute Function
+# Part 4: Main Compute Function (No Auto-Selection)
 # ---------------------------
 
 def compute_protocol(
@@ -446,6 +472,7 @@ def compute_protocol(
     
     Takes user input, runs all calculations and validations,
     returns complete result for PDF generation.
+    All selections must be explicitly provided by user - no auto-selection.
     """
     # Validate medication exists
     if compute_input.medication_id not in rules_state.meds:
@@ -453,70 +480,258 @@ def compute_protocol(
             medication_id=compute_input.medication_id,
             dose_mg=compute_input.dose_mg,
             num_preparations=compute_input.num_preparations,
+            container_id=compute_input.container_id,
+            final_volume_ml=0.0,
             errors=[f"Unknown medication ID: {compute_input.medication_id}"]
         )
     
     med = rules_state.meds[compute_input.medication_id]
     
-    # Auto-select or validate container
-    if compute_input.container_id:
-        if compute_input.container_id not in rules_state.containers:
-            return ComputeResult(
-                medication_id=compute_input.medication_id,
-                dose_mg=compute_input.dose_mg,
-                num_preparations=compute_input.num_preparations,
-                container_id=compute_input.container_id,
-                medication=med,
-                medication_name=med.name,
-                errors=[f"Unknown container ID: {compute_input.container_id}"]
-            )
-        container = rules_state.containers[compute_input.container_id]
-    else:
-        # Auto-select container (placeholder for now)
-        container = auto_select_container(med, compute_input.dose_mg, rules_state)
-        if not container:
-            return ComputeResult(
-                medication_id=compute_input.medication_id,
-                dose_mg=compute_input.dose_mg,
-                num_preparations=compute_input.num_preparations,
-                medication=med,
-                medication_name=med.name,
-                errors=["No container specified and auto-selection not yet implemented"]
-            )
+    # Validate container exists (required)
+    if compute_input.container_id not in rules_state.containers:
+        return ComputeResult(
+            medication_id=compute_input.medication_id,
+            dose_mg=compute_input.dose_mg,
+            num_preparations=compute_input.num_preparations,
+            container_id=compute_input.container_id,
+            final_volume_ml=0.0,
+            medication_name=med.name,
+            errors=[f"Unknown container ID: {compute_input.container_id}"]
+        )
+    
+    container = rules_state.containers[compute_input.container_id]
     
     # Determine final volume
     final_volume_ml = compute_input.final_volume_ml or container.capacity_ml
     
-    # Auto-select or validate solvent
-    if compute_input.solvent:
-        if compute_input.solvent not in rules_state.solvents:
-            return ComputeResult(
-                medication_id=compute_input.medication_id,
-                dose_mg=compute_input.dose_mg,
-                num_preparations=compute_input.num_preparations,
-                container_id=compute_input.container_id,
-                final_volume_ml=final_volume_ml,
-                medication=med,
-                container=container,
-                medication_name=med.name,
-                container_description=f"{container.capacity_ml} mL {container.kind.replace('_', ' ').title()}",
-                errors=[f"Unknown solvent ID: {compute_input.solvent}"]
-            )
-        final_solvent = rules_state.solvents[compute_input.solvent]
-    else:
-        final_solvent = auto_select_solvent(med, container, rules_state, "dilution")
-        if not final_solvent:
-            return ComputeResult(
-                medication_id=compute_input.medication_id,
-                dose_mg=compute_input.dose_mg,
-                num_preparations=compute_input.num_preparations,
-                container_id=compute_input.container_id,
-                final_volume_ml=final_volume_ml,
-                medication=med,
-                container=container,
-                medication_name=med.name,
-                container_description=f"{container.capacity_ml} mL {container.kind.replace('_', ' ').title()}",
-                errors=["No valid solvent found for this medication and container combination"]
-            )
+    # Determine solvent - prefilled containers use their solvent, others require user selection
+    final_solvent = None
+    solvent_id = None
     
-    # Calculate volumes based on medication
+    if container.kind in {"bag_prefilled", "bottle_prefilled"}:
+        # Use container's prefilled solvent
+        if not container.solvent or container.solvent not in rules_state.solvents:
+            return ComputeResult(
+                medication_id=compute_input.medication_id,
+                dose_mg=compute_input.dose_mg,
+                num_preparations=compute_input.num_preparations,
+                container_id=compute_input.container_id,
+                final_volume_ml=final_volume_ml,
+                medication_name=med.name,
+                container_name=container.name,
+                errors=[f"Container {container.id} has invalid solvent: {container.solvent}"]
+            )
+        final_solvent = rules_state.solvents[container.solvent]
+        solvent_id = container.solvent
+    else:
+        # Syringe or empty container - solvent must be provided by user
+        if not compute_input.solvent_id:
+            return ComputeResult(
+                medication_id=compute_input.medication_id,
+                dose_mg=compute_input.dose_mg,
+                num_preparations=compute_input.num_preparations,
+                container_id=compute_input.container_id,
+                final_volume_ml=final_volume_ml,
+                medication_name=med.name,
+                container_name=container.name,
+                errors=[f"Solvent must be specified for {container.kind} containers"]
+            )
+        
+        if compute_input.solvent_id not in rules_state.solvents:
+            return ComputeResult(
+                medication_id=compute_input.medication_id,
+                dose_mg=compute_input.dose_mg,
+                num_preparations=compute_input.num_preparations,
+                container_id=compute_input.container_id,
+                solvent_id=compute_input.solvent_id,
+                final_volume_ml=final_volume_ml,
+                medication_name=med.name,
+                container_name=container.name,
+                errors=[f"Unknown solvent ID: {compute_input.solvent_id}"]
+            )
+        
+        final_solvent = rules_state.solvents[compute_input.solvent_id]
+        solvent_id = compute_input.solvent_id
+    
+    # Calculate volumes based on medication type
+    warnings = []
+    errors = []
+    
+    if med.presentation == "solution":
+        drug_volume_ml, withdraw_volume_ml, final_conc, n_vials, vol_warnings = calculate_solution_volumes(
+            med, container, compute_input.dose_mg, final_volume_ml, compute_input.num_preparations
+        )
+        warnings.extend(vol_warnings)
+        
+        # For solutions, powder-specific fields remain zero
+        reconst_per_vial_ml = 0.0
+        stock_conc_mg_per_ml = 0.0
+        stock_total_ml = 0.0
+        stock_leftover_ml = 0.0
+    
+    else:  # powder
+        (n_vials, reconst_per_vial_ml, stock_conc_mg_per_ml, stock_total_ml,
+         drug_volume_ml, withdraw_volume_ml, final_conc, vol_warnings) = calculate_powder_volumes(
+            med, container, compute_input.dose_mg, final_volume_ml, compute_input.num_preparations
+        )
+        warnings.extend(vol_warnings)
+        stock_leftover_ml = stock_total_ml - (drug_volume_ml * compute_input.num_preparations)
+    
+    # Safety validations
+    conc_in_range, conc_warnings = validate_concentration(final_conc, med)
+    warnings.extend(conc_warnings)
+    
+    solvent_compatible, solvent_warnings = validate_solvent_compatibility(
+        med, final_solvent, "dilution"
+    )
+    warnings.extend(solvent_warnings)
+    
+    # TODO(M3.T3): Generate steps from steps_library + sequences
+    steps = [
+        f"Gather {med.name} {med.presentation}",
+        f"Gather {container.name}",
+        f"Use {final_solvent.name} for dilution",
+        "Complete compounding as per SOP",
+        f"Final concentration: {final_conc:.2f} mg/mL"
+    ]
+    
+    return ComputeResult(
+        # Input echo (NO PHI)
+        medication_id=compute_input.medication_id,
+        dose_mg=compute_input.dose_mg,
+        num_preparations=compute_input.num_preparations,
+        container_id=compute_input.container_id,
+        solvent_id=solvent_id,
+        final_volume_ml=final_volume_ml,
+        target_conc_mg_per_ml=compute_input.target_conc_mg_per_ml,
+        
+        # Human-readable names
+        medication_name=med.name,
+        container_name=container.name,
+        solvent_name=final_solvent.name,
+        
+        # Internal objects
+        medication=med,
+        container=container,
+        final_solvent=final_solvent,
+        
+        # Calculated values
+        final_concentration_mg_per_ml=final_conc,
+        drug_volume_ml=drug_volume_ml,
+        withdraw_volume_ml=withdraw_volume_ml,
+        n_vials=n_vials,
+        reconst_per_vial_ml=reconst_per_vial_ml,
+        stock_conc_mg_per_ml=stock_conc_mg_per_ml,
+        stock_total_ml=stock_total_ml,
+        stock_leftover_ml=stock_leftover_ml,
+        total_drug_volume_ml=drug_volume_ml * compute_input.num_preparations,
+        total_vials_needed=n_vials,
+        total_dose_mg=compute_input.dose_mg * compute_input.num_preparations,
+        warnings=warnings,
+        errors=errors,
+        concentration_in_range=conc_in_range,
+        solvent_compatible=solvent_compatible,
+        steps=steps
+    )
+
+
+# NEW: Separate model for PDF generation that includes PHI
+class PDFContext(BaseModel):
+    """
+    Patient information for PDF generation only.
+    Kept separate to minimize PHI exposure in API responses.
+    """
+    patient_name: Optional[str] = None
+    patient_hrn: Optional[str] = None
+    generated_at: Optional[str] = None  # ISO timestamp
+    pharmacist_id: Optional[str] = None
+    
+    class Config:
+        json_schema_extra = {
+            "sensitive": True,  # Mark as containing PHI
+            "description": "Patient information for PDF generation - contains PHI"
+        }
+
+
+class WorksheetData(BaseModel):
+    """
+    Complete data package for PDF worksheet generation.
+    Combines calculation results with patient information.
+    """
+    compute_result: ComputeResult
+    pdf_context: PDFContext
+    
+    class Config:
+        json_schema_extra = {
+            "sensitive": True,  # Contains PHI via pdf_context
+            "description": "Complete worksheet data including patient information"
+        }
+
+
+# ---------------------------
+# CLI Testing Helper
+# ---------------------------
+
+if __name__ == "__main__":
+    # Quick test with sample data
+    from pathlib import Path
+    from .rules_loader import init_rules
+    
+    rules_state = init_rules(Path(__file__).parent.parent / "rules")
+    
+    # Test with explicit selections (new approach)
+    test_input = ComputeInput(
+        medication_id="PACLITAXEL",
+        container_id="bag_ns_250",
+        dose_mg=200.0,
+        patient_name="Test Patient",
+        patient_hrn="12345",
+        num_preparations=1
+        # solvent_id not needed for prefilled bag
+    )
+    
+    # Test with syringe (requires solvent)
+    test_input_syringe = ComputeInput(
+        medication_id="PACLITAXEL",
+        container_id="syringe_50ml",
+        dose_mg=150.0,
+        patient_name="Test Patient",
+        patient_hrn="12345",
+        solvent_id="D5",  # Required for syringe
+        num_preparations=3
+    )
+    
+    result = compute_protocol(test_input, rules_state)
+    
+    print(f"Medication: {result.medication_name}")
+    print(f"Container: {result.container_name}")
+    print(f"Solvent: {result.solvent_name}")
+    print(f"Drug volume: {result.drug_volume_ml} mL")
+    print(f"Withdraw: {result.withdraw_volume_ml} mL")
+    print(f"Final conc: {result.final_concentration_mg_per_ml:.2f} mg/mL")
+    print(f"Total preparations: {result.num_preparations}")
+    print(f"Total drug volume: {result.total_drug_volume_ml} mL")
+    print(f"Total vials needed: {result.total_vials_needed}")
+    print(f"Warnings: {len(result.warnings)}")
+    print(f"Errors: {len(result.errors)}")
+    if result.warnings:
+        for w in result.warnings:
+            print(f"  - {w}")
+    if result.errors:
+        for e in result.errors:
+            print(f"  - {e}")
+    
+    # Example of PDF generation workflow
+    if not result.errors:
+        pdf_context = PDFContext(
+            patient_name=test_input.patient_name,
+            patient_hrn=test_input.patient_hrn,
+            generated_at="2025-09-21T10:30:00Z"
+        )
+        
+        worksheet_data = WorksheetData(
+            compute_result=result,
+            pdf_context=pdf_context
+        )
+        
+        print(f"\nPDF Context: {pdf_context.patient_name} ({pdf_context.patient_hrn})")
