@@ -37,7 +37,7 @@ def sha256_hex(path: Path) -> str:
 # Part 2: Constants / allowed enums type definitions
 # ---------------------------
 
-ContainerKind = Literal["bag_prefilled", "bag_empty", "bottle_prefilled", "syringe"]
+ContainerKind = Literal["bag_prefilled", "bag_empty", "bottle_prefilled", "syringe", "container_empty"]
 Presentation = Literal["solution", "powder"]
 
 ALLOWED_CONTAINER_KINDS: set[str] = set(get_args(ContainerKind)) # pulling value from ContainerKind and convert into a iterable set for later usage
@@ -61,7 +61,7 @@ class Solvent(BaseModel):
 
 class Container(BaseModel):
     """
-    Container rule: bags, bottles, syringes with their properties.
+    Container rule: bags, bottles, syringes, and generic empty containers with their properties.
     """
     model_config = ConfigDict(extra="forbid")
     
@@ -105,11 +105,11 @@ class Container(BaseModel):
             if not self.solvent:
                 errs.append("solvent required for prefilled containers")
         
-        elif self.kind == "bag_empty":
+        elif self.kind in {"bag_empty", "container_empty"}:
             if self.prefill_ml is not None:
-                errs.append("bag_empty must not define prefill_ml")
+                errs.append(f"{self.kind} must not define prefill_ml")
             if self.solvent is not None:
-                errs.append("bag_empty must not define solvent")
+                errs.append(f"{self.kind} must not define solvent")
         
         elif self.kind == "syringe":
             if self.usable_fraction is None:

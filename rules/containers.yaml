@@ -107,3 +107,22 @@
   kind: syringe
   capacity_ml: 100.0
   usable_fraction: 0.8
+
+# Generic empty containers for custom preparations
+- id: empty_vial_small
+  name: "Small Empty Vial"
+  kind: container_empty
+  capacity_ml: 20.0
+  usable_fraction: 0.9
+
+- id: empty_vial_medium
+  name: "Medium Empty Vial"
+  kind: container_empty
+  capacity_ml: 50.0
+  usable_fraction: 0.9
+
+- id: empty_vial_large
+  name: "Large Empty Vial"
+  kind: container_empty
+  capacity_ml: 100.0
+  usable_fraction: 0.9

@@ -314,8 +314,8 @@ def calculate_solution_volumes(
         # Prefilled containers: available headroom = capacity - prefill
         available_headroom = container.capacity_ml - container.prefill_ml
         withdraw_volume_ml = max(0, drug_volume_ml - available_headroom)
-    elif container.kind == "bag_empty":
-        # Empty bag: no withdrawal needed (we add solvent as needed)
+    elif container.kind in {"bag_empty", "container_empty"}:
+        # Empty containers: no withdrawal needed (we add solvent as needed)
         withdraw_volume_ml = 0.0
     elif container.kind == "syringe":
         # Syringe: check against usable capacity
@@ -390,6 +390,7 @@ def calculate_powder_volumes(
         available_headroom = container.capacity_ml - container.prefill_ml
         withdraw_volume_ml = max(0, drug_volume_ml - available_headroom)
     else:
+        # Empty containers and syringes: no withdrawal needed
         withdraw_volume_ml = 0.0
     
     withdraw_volume_ml = round_to_decimal(withdraw_volume_ml)
@@ -524,8 +525,9 @@ def compute_protocol(
         final_solvent = rules_state.solvents[container.solvent]
         solvent_id = container.solvent
     else:
-        # Syringe or empty container - solvent must be provided by user
+        # Syringe, empty bag, or empty container - solvent must be provided by user
         if not compute_input.solvent_id:
+            container_type = container.kind.replace('_', ' ')
             return ComputeResult(
                 medication_id=compute_input.medication_id,
                 dose_mg=compute_input.dose_mg,
@@ -534,7 +536,7 @@ def compute_protocol(
                 final_volume_ml=final_volume_ml,
                 medication_name=med.name,
                 container_name=container.name,
-                errors=[f"Solvent must be specified for {container.kind} containers"]
+                errors=[f"Solvent must be specified for {container_type} containers"]
             )
         
         if compute_input.solvent_id not in rules_state.solvents:
