@@ -158,10 +158,9 @@ All rules live under `rules/`. Pharmacy staff can update YAML safely via the Adm
   capacity_ml: 50
   usable_fraction: 0.8
 
-- id: empty_vial_large
+- id: deltec_cassette_100ml
   kind: container_empty
-  capacity_ml: 100
-  usable_fraction: 0.9
+  capacity_ml: 100.0
 ```
 
 **Container Types:**

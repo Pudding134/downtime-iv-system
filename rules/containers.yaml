@@ -109,20 +109,12 @@
   usable_fraction: 0.8
 
 # Generic empty containers for custom preparations
-- id: empty_vial_small
-  name: "Small Empty Vial"
-  kind: container_empty
-  capacity_ml: 20.0
-  usable_fraction: 0.9
-
-- id: empty_vial_medium
-  name: "Medium Empty Vial"
-  kind: container_empty
-  capacity_ml: 50.0
-  usable_fraction: 0.9
-
-- id: empty_vial_large
-  name: "Large Empty Vial"
+- id: deltec_cassette_100ml
+  name: "Deltec Cassette 100 mL"
   kind: container_empty
   capacity_ml: 100.0
-  usable_fraction: 0.9
+
+- id: deltec_cassette_250ml
+  name: "Deltec Cassette 250 mL"
+  kind: container_empty
+  capacity_ml: 250.0
