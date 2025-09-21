@@ -1,5 +1,5 @@
 - id: PACLITAXEL
-  name: Paclitaxel
+  name: Paclitaxel 300mg/50mL
   presentation: solution           # solution | powder
   stock:
     amount_mg: 300

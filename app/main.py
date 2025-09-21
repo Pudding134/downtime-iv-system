@@ -132,3 +132,13 @@ def admin_logout():
     # Delete the session cookie to terminate admin session
     response.delete_cookie(key="dv_sess")
     return response
+
+# post/compute endpoint to handle compute requests
+from .compute import ComputeInput, ComputeOutput    
+@app.post("/compute", response_model=ComputeOutput)
+def compute_endpoint(data: ComputeInput):
+    """
+    Main compute endpoint.
+    Takes ComputeInput, returns ComputeOutput.
+    """
+

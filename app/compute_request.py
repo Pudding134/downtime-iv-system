@@ -154,7 +154,7 @@ class ComputeResult(BaseModel):
     medication_id: str
     dose_mg: float
     num_preparations: int
-    container_id: Optional[str] = None
+    container_id: str  # Always provided by user
     final_volume_ml: Optional[float] = None
     target_conc_mg_per_ml: Optional[float] = None
     
