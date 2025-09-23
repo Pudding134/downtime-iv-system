@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Literal
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Annotated
 from .auth import authenticate_admin, make_session, read_session, is_fresh
@@ -33,6 +33,15 @@ TEMPLATES = Environment(
 def render(name: str, **ctx):
     tpl = TEMPLATES.get_template(name)
     return HTMLResponse(tpl.render(**ctx))
+
+# Helper to raise HTTP 422 with structured error info
+def err422(code: str, message: str, *, field: str | None = None, hint: str | None = None, ctx: dict | None = None) -> None:
+    detail = {"error": {"code": code, "message": message}}
+    if field: detail["error"]["field"] = field
+    if hint:  detail["error"]["hint"]  = hint
+    if ctx:   detail["error"]["context"] = ctx
+    raise HTTPException(status_code=422, detail=detail)
+
 
 app = FastAPI(title="Downtime-IV-System", version="0.1.0")
 
@@ -136,9 +145,108 @@ def admin_logout():
 # post/compute endpoint to handle compute requests
 from .compute import ComputeInput, ComputeOutput    
 @app.post("/compute", response_model=ComputeOutput)
-def compute_endpoint(data: ComputeInput):
-    """
-    Main compute endpoint.
-    Takes ComputeInput, returns ComputeOutput.
-    """
+def compute_endpoint(input_data: ComputeInput):
+    # 0) Ensure rules are loaded
+    if RULES_STATE is None:
+        # Rare, but return a clear 503 if init failed
+        raise HTTPException(status_code=503, detail={"error": {"code": "rules_unavailable", "message": "Rules not loaded"}})
 
+    # 1) Lookups
+    med = RULES_STATE.meds.get(input_data.medication_id)
+    if not med:
+        err422("unknown_medication", "Medication ID not found.", field="medication_id")
+
+    ctr = RULES_STATE.containers.get(input_data.container_id)
+    if not ctr:
+        err422("unknown_container", "Container ID not found.", field="container_id")
+
+    # 2) Solvent policy by container kind
+    kind = ctr.kind  # "bag_prefilled" | "bottle_prefilled" | "bag_empty" | "container_empty" | "syringe"
+
+    if kind in {"bag_prefilled", "bottle_prefilled"}:
+        # User must NOT provide solvent; container defines it
+        if input_data.solvent_id is not None:
+            err422(
+                "solvent_not_allowed_for_prefilled",
+                "Solvent must not be provided for prefilled containers.",
+                field="solvent_id",
+                hint="Remove solvent_id or choose an empty bag/syringe.",
+                ctx={"container_id": ctr.id},
+            )
+        final_solvent_id = ctr.solvent
+        solvent_source = "container_prefill"
+
+    elif kind in {"bag_empty", "container_empty", "syringe"}:
+        # User MUST provide solvent, and it must be allowed for the medication
+        if input_data.solvent_id is None:
+            err422(
+                "solvent_required_for_empty_or_syringe",
+                "Solvent is required for empty containers and syringes.",
+                field="solvent_id",
+            )
+        if input_data.solvent_id not in med.allowed_solvents:
+            allowed = ", ".join(med.allowed_solvents)
+            err422(
+                "incompatible_solvent",
+                "Selected solvent is not allowed for this medication.",
+                field="solvent_id",
+                hint=f"Pick one of: {allowed}.",
+                ctx={"medication_id": med.id, "solvent_id": input_data.solvent_id},
+            )
+        final_solvent_id = input_data.solvent_id
+        solvent_source = "user_selection"
+
+    else:
+        err422(
+            "unsupported_container_kind",
+            f"Container kind '{kind}' is not supported.",
+            ctx={"container_id": ctr.id},
+        )
+
+    # 3) Display names
+    medication_name = med.name
+    container_name = getattr(ctr, "display_name", None) or ctr.id
+    solv_obj = RULES_STATE.solvents.get(final_solvent_id)
+    solvent_name = (solv_obj.name if solv_obj else final_solvent_id)
+
+    # 4) Return placeholder ComputeOutput (numbers computed in M3.T2)
+    return ComputeOutput(
+        # echo key inputs
+        dose_mg=input_data.dose_mg,
+        num_preparations=input_data.num_preparations,
+        target_conc_mg_per_ml=input_data.target_conc_mg_per_ml,
+
+        # ids & names
+        medication_id=med.id,
+        medication_name=medication_name,
+        container_id=ctr.id,
+        container_name=container_name,
+        solvent_id=final_solvent_id,
+        solvent_name=solvent_name,
+        solvent_source=solvent_source,
+
+        # no math yet
+        drug_volume_ml=None,
+        container_adjustment_vol_ml=None,
+        final_product_conc_mg_per_ml=None,
+        final_product_vol_ml=None,
+
+        # powder placeholders
+        required_num_vials_per_preparation=1,
+        reconst_per_vial_vol_ml=None,
+        reconst_vial_conc_mg_per_ml=None,
+        reconst_vial_total_vol_ml=None,
+        reconst_vial_total_leftover_vol_ml=None,
+
+        # total placeholders
+        total_required_drug_volume_ml=None,
+        total_vials_needed=1,
+        total_dose_mg_required=None,
+
+        # flags & lists
+        concentration_in_range=None,
+        solvent_compatible=True,
+        warnings=[],
+        errors=[],
+        steps=[],
+    )
