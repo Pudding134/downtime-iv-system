@@ -26,7 +26,7 @@
     min: 0.5
     max: 4.0
   allowed_solvents: [NS, D5]
-  allowed_container_kinds: [bag_prefilled, bag_empty]
+  allowed_container_kinds: [bag_prefilled]
   stability:
     by_solvent_hours:
       NS: 24
@@ -79,6 +79,6 @@
     min: 0.2
     max: 1.0
   allowed_solvents: [D5]
-  allowed_container_kinds: [bag_prefilled, bag_empty]
+  allowed_container_kinds: [bag_prefilled]
   stability:
     general_hours: 168
