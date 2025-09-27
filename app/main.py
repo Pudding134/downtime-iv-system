@@ -45,15 +45,15 @@ def err422(code: str, message: str, *, field: str | None = None, hint: str | Non
 
 app = FastAPI(title="Downtime-IV-System", version="0.1.0")
 
-RULES_STATE: RulesState | None = None
+RULES_STATE_AT_STARTUP: RulesState | None = None
 RULES_BADGE = "Rules - not loaded"
 
 @app.on_event("startup")
 def _load_rules():
-    global RULES_STATE, RULES_BADGE
-    RULES_STATE = init_rules(Path(__file__).parent.parent / "rules")
+    global RULES_STATE_AT_STARTUP, RULES_BADGE
+    RULES_STATE_AT_STARTUP = init_rules(Path(__file__).parent.parent / "rules")
     # For T2.1 we only show counts/OK; T3 will set a real badge from manifest.
-    RULES_BADGE = RULES_STATE.badge_text
+    RULES_BADGE = RULES_STATE_AT_STARTUP.badge_text
 
 @app.get("/rules/status", response_model=RulesStatus)
 def rules_status():
@@ -62,15 +62,15 @@ def rules_status():
     Safe to call as Guest; Admin UI will also use this.
     """
     counts = {
-        "meds": RULES_STATE.counts[0],
-        "containers": RULES_STATE.counts[1],
-        "solvents": RULES_STATE.counts[2]
+        "meds": RULES_STATE_AT_STARTUP.counts[0],
+        "containers": RULES_STATE_AT_STARTUP.counts[1],
+        "solvents": RULES_STATE_AT_STARTUP.counts[2]
     }
-    errors_list = RULES_STATE.errors or []
+    errors_list = RULES_STATE_AT_STARTUP.errors or []
     payload = {
-        "version": RULES_STATE.rules_version, 
-        "integrity": RULES_STATE.integrity, 
-        "badge": RULES_STATE.badge_text,
+        "version": RULES_STATE_AT_STARTUP.rules_version, 
+        "integrity": RULES_STATE_AT_STARTUP.integrity, 
+        "badge": RULES_STATE_AT_STARTUP.badge_text,
         "counts": counts,
         "num_errors": len(errors_list),
         "errors": errors_list[:5] # cap to the first 5 errors in the list
@@ -80,7 +80,7 @@ def rules_status():
 
 @app.get("/", response_class=HTMLResponse)
 def root():
-    errors = RULES_STATE.errors if (RULES_STATE and RULES_STATE.errors) else []
+    errors = RULES_STATE_AT_STARTUP.errors if (RULES_STATE_AT_STARTUP and RULES_STATE_AT_STARTUP.errors) else []
     return render("home_guest.html", rules_badge=RULES_BADGE, rules_errors=errors)
 
 
@@ -94,7 +94,7 @@ def admin_home(request: Request):
         return RedirectResponse(url="/admin/login?error=expired", status_code=303)
     
     # render page if all valid
-    errors = RULES_STATE.errors if (RULES_STATE and RULES_STATE.errors) else []
+    errors = RULES_STATE_AT_STARTUP.errors if (RULES_STATE_AT_STARTUP and RULES_STATE_AT_STARTUP.errors) else []
     response = render("home_admin.html", rules_badge = RULES_BADGE, rules_errors=errors)
 
     # Refresh idle timer (slide the window): issue a fresh token
@@ -147,16 +147,16 @@ from .compute import ComputeInput, ComputeOutput
 @app.post("/compute", response_model=ComputeOutput)
 def compute_endpoint(input_data: ComputeInput):
     # 0) Ensure rules are loaded
-    if RULES_STATE is None:
+    if RULES_STATE_AT_STARTUP is None:
         # Rare, but return a clear 503 if init failed
         raise HTTPException(status_code=503, detail={"error": {"code": "rules_unavailable", "message": "Rules not loaded"}})
 
     # 1) Lookups
-    med = RULES_STATE.meds.get(input_data.medication_id)
+    med = RULES_STATE_AT_STARTUP.meds.get(input_data.medication_id)
     if not med:
         err422("unknown_medication", "Medication ID not found.", field="medication_id")
 
-    ctr = RULES_STATE.containers.get(input_data.container_id)
+    ctr = RULES_STATE_AT_STARTUP.containers.get(input_data.container_id)
     if not ctr:
         err422("unknown_container", "Container ID not found.", field="container_id")
 
@@ -206,7 +206,7 @@ def compute_endpoint(input_data: ComputeInput):
     # 3) Display names
     medication_name = med.name
     container_name = getattr(ctr, "display_name", None) or ctr.id
-    solv_obj = RULES_STATE.solvents.get(final_solvent_id)
+    solv_obj = RULES_STATE_AT_STARTUP.solvents.get(final_solvent_id)
     solvent_name = (solv_obj.name if solv_obj else final_solvent_id)
 
     # 4) Return placeholder ComputeOutput (numbers computed in M3.T2)
