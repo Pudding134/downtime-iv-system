@@ -15,8 +15,19 @@ Key functions:
 - assemble_steps(): generate instructions from steps_library + sequences
 """
 
+from dataclasses import dataclass
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal, Optional, List
+from rules_loader import RulesState
+
+# Custom exception class for domain-specific errors
+@dataclass
+class DomainError(Exception):
+    code: str
+    message: str
+    field: Optional[str] = None
+    hint: Optional[str] = None
+    context: Optional[dict] = None
 
 class ComputeInput(BaseModel):
     """
@@ -109,3 +120,134 @@ class ComputeOutput(BaseModel):
                             },
                             description="Output model for computed compounding protocol."
                             )  # End of model config
+
+def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
+    # 1) Lookups
+    med = rules.meds.get(input_data.medication_id)
+    if not med:
+        DomainError("unknown_medication", "Medication ID not found.", field="medication_id")
+
+    ctr = rules.containers.get(input_data.container_id)
+    if not ctr:
+        DomainError("unknown_container", "Container ID not found.", field="container_id")
+
+    # 2) Solvent policy by container kind
+    kind = ctr.kind  # "bag_prefilled" | "bottle_prefilled" | "bag_empty" | "container_empty" | "syringe"
+
+    if kind in {"bag_prefilled", "bottle_prefilled"}:
+        # User must NOT provide solvent; container defines it
+        if input_data.solvent_id is not None:
+            DomainError(
+                "solvent_not_allowed_for_prefilled",
+                "Solvent must not be provided for prefilled containers.",
+                field="solvent_id",
+                hint="Remove solvent_id or choose an empty bag/syringe.",
+                ctx={"container_id": ctr.id},
+            )
+        final_solvent_id = ctr.solvent
+        solvent_source = "container_prefill"
+
+    elif kind in {"bag_empty", "container_empty", "syringe"}:
+        # User MUST provide solvent, and it must be allowed for the medication
+        if input_data.solvent_id is None:
+            DomainError(
+                "solvent_required_for_empty_or_syringe",
+                "Solvent is required for empty containers and syringes.",
+                field="solvent_id",
+            )
+        if input_data.solvent_id not in med.allowed_solvents:
+            allowed = ", ".join(med.allowed_solvents)
+            DomainError (
+                "incompatible_solvent",
+                "Selected solvent is not allowed for this medication.",
+                field="solvent_id",
+                hint=f"Pick one of: {allowed}.",
+                ctx={"medication_id": med.id, "solvent_id": input_data.solvent_id},
+            )
+        final_solvent_id = input_data.solvent_id
+        solvent_source = "user_selection"
+
+    else:
+        DomainError(
+            "unsupported_container_kind",
+            f"Container kind '{kind}' is not supported.",
+            ctx={"container_id": ctr.id},
+        )
+
+    # 3) Display names
+    medication_name = med.name
+    container_name = getattr(ctr, "display_name", None) or ctr.id
+    solv_obj = rules.solvents.get(final_solvent_id)
+    solvent_name = (solv_obj.name if solv_obj else final_solvent_id)
+
+    # 4) Return placeholder ComputeOutput (numbers computed in M3.T2)
+    return ComputeOutput(
+        # echo key inputs
+        dose_mg=input_data.dose_mg,
+        num_preparations=input_data.num_preparations,
+        target_conc_mg_per_ml=input_data.target_conc_mg_per_ml,
+
+        # ids & names
+        medication_id=med.id,
+        medication_name=medication_name,
+        container_id=ctr.id,
+        container_name=container_name,
+        solvent_id=final_solvent_id,
+        solvent_name=solvent_name,
+        solvent_source=solvent_source,
+
+        # no math yet
+        drug_volume_ml=None,
+        container_adjustment_vol_ml=None,
+        final_product_conc_mg_per_ml=None,
+        final_product_vol_ml=None,
+
+        # powder placeholders
+        required_num_vials_per_preparation=1,
+        reconst_per_vial_vol_ml=None,
+        reconst_vial_conc_mg_per_ml=None,
+        reconst_vial_total_vol_ml=None,
+        reconst_vial_total_leftover_vol_ml=None,
+
+        # total placeholders
+        total_required_drug_volume_ml=None,
+        total_vials_needed=1,
+        total_dose_mg_required=None,
+
+        # flags & lists
+        concentration_in_range=None,
+        solvent_compatible=True,
+        warnings=[],
+        errors=[],
+        steps=[],
+    )
+
+
+# A) Compute stock concentration (mg/mL)
+# Why first
+
+# Everything else depends on it. It’s deterministic and safe:
+# 	•	Solution meds: concentration is stock.mg_per_ml (from stock.mg / stock.volume_ml or a direct field if you stored it).
+# 	•	Powder meds: concentration is stock.mg / reconstitution.volume_ml after reconstitution.
+# You already enforce that powder must have a diluent + volume in your rules loader.
+
+# What to add (minimal)
+
+# Inside your compute_endpoint, right after you’ve resolved med, compute:
+# 	•	stock_conc = ... (float, mg/mL)
+# 	•	For powders, also compute a vial math scaffold (just counts/placeholders now): required_num_vials_per_preparation and reconst_per_vial_vol_ml if your YAML defines a per-vial reconstitution.
+
+# Why only this now
+
+# You’ll be able to:
+# 	•	return stock_conc (as reconst_vial_conc_mg_per_ml for powders or stock_conc_mg_per_ml if you add that field),
+# 	•	and use it in the next step to derive the drug volume.
+
+
+
+
+
+# B) Establish final volume policy (prefilled vs empty/syringe)
+# C) Compute drug volume (mL) from dose and stock conc
+# D) Compute container adjustment (pre-withdraw or top-up)
+# E) Set final product conc and in-range warnings
