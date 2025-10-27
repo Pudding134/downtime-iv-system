@@ -128,11 +128,11 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
     # 1) Lookups
     med = rules.meds.get(input_data.medication_id)
     if not med:
-        DomainError("unknown_medication", "Medication ID not found.", field="medication_id")
+        raise DomainError("unknown_medication", "Medication ID not found.", field="medication_id")
 
     ctr = rules.containers.get(input_data.container_id)
     if not ctr:
-        DomainError("unknown_container", "Container ID not found.", field="container_id")
+        raise DomainError("unknown_container", "Container ID not found.", field="container_id")
 
     # 2) Solvent policy by container kind
     ctr_kind = ctr.kind  # "bag_prefilled" | "bottle_prefilled" | "bag_empty" | "container_empty" | "syringe"
@@ -154,14 +154,14 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
     elif ctr_kind in {"bag_empty", "container_empty", "syringe"}:
         # User MUST provide solvent, and it must be allowed for the medication
         if input_data.solvent_id is None:
-            DomainError(
+            raise DomainError(
                 "solvent_required_for_empty_or_syringe",
                 "Solvent is required for empty containers and syringes.",
                 field="solvent_id",
             )
         if input_data.solvent_id not in med.allowed_solvents:
             allowed = ", ".join(med.allowed_solvents)
-            DomainError(
+            raise DomainError(
                 "incompatible_solvent_selected",
                 "Selected solvent is not allowed for this medication.",
                 field="solvent_id",
@@ -172,7 +172,7 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
         solvent_source = "user_selection"
 
     else:
-        DomainError(
+        raise DomainError(
             "unsupported_container_kind",
             f"Container kind '{ctr_kind}' is not supported.",
             ctx={"container_id": ctr.id},

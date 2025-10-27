@@ -362,17 +362,10 @@ dob: str                # Date of birth (YYYY-MM-DD)
 weight_kg: float        # Patient weight in kg
 preparation_count: int   # Number of identical preparations (default: 1)
 medication_id: str      # Must match medication ID from medications.yaml
-dose: DoseInput         # Contains amount and unit (e.g., {"amount": 100, "unit": "mg"})
+dose_mg: float          # Dose in milligrams (unit conversion handled in Stock model)
 total_volume_ml: float  # Total volume for final preparation
 container_id: str       # Must match container ID from containers.yaml
 solvent_id: str         # Must match solvent ID from solvents.yaml (if needed)
-```
-
-**DoseInput Model:**
-```python
-class DoseInput(BaseModel):
-    amount: float       # Numerical amount of medication
-    unit: str          # Unit of measurement ("mg" or "mcg")
 ```
 
 **User Selection Requirements:**
