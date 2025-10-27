@@ -97,6 +97,9 @@ class ComputeOutput(BaseModel):
 
     # container adjustment details (if auto-resize)
 
+    # temporary variable for testing
+    stock_conc_mg_per_ml: Optional[float] = None
+
 
     model_config = ConfigDict(
                             extra="forbid", # Forbid extra fields
@@ -132,10 +135,10 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
         DomainError("unknown_container", "Container ID not found.", field="container_id")
 
     # 2) Solvent policy by container kind
-    kind = ctr.kind  # "bag_prefilled" | "bottle_prefilled" | "bag_empty" | "container_empty" | "syringe"
+    ctr_kind = ctr.kind  # "bag_prefilled" | "bottle_prefilled" | "bag_empty" | "container_empty" | "syringe"
 
-    if kind in {"bag_prefilled", "bottle_prefilled"}:
-        # User must NOT provide solvent; container defines it
+    # Prefilled container defines solvent; user must NOT provide solvent
+    if ctr_kind in {"bag_prefilled", "bottle_prefilled"}:
         if input_data.solvent_id is not None:
             DomainError(
                 "solvent_not_allowed_for_prefilled",
@@ -147,7 +150,8 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
         final_solvent_id = ctr.solvent
         solvent_source = "container_prefill"
 
-    elif kind in {"bag_empty", "container_empty", "syringe"}:
+    # empty containers and syringes require user-selected solvent
+    elif ctr_kind in {"bag_empty", "container_empty", "syringe"}:
         # User MUST provide solvent, and it must be allowed for the medication
         if input_data.solvent_id is None:
             DomainError(
@@ -157,11 +161,11 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
             )
         if input_data.solvent_id not in med.allowed_solvents:
             allowed = ", ".join(med.allowed_solvents)
-            DomainError (
-                "incompatible_solvent",
+            DomainError(
+                "incompatible_solvent_selected",
                 "Selected solvent is not allowed for this medication.",
                 field="solvent_id",
-                hint=f"Pick one of: {allowed}.",
+                hint=f"Pick from the allowed list of solvents: {allowed}.",
                 ctx={"medication_id": med.id, "solvent_id": input_data.solvent_id},
             )
         final_solvent_id = input_data.solvent_id
@@ -170,7 +174,7 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
     else:
         DomainError(
             "unsupported_container_kind",
-            f"Container kind '{kind}' is not supported.",
+            f"Container kind '{ctr_kind}' is not supported.",
             ctx={"container_id": ctr.id},
         )
 
@@ -224,9 +228,6 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
 
 
 # A) Compute stock concentration (mg/mL)
-# Why first
-
-# Everything else depends on it. It’s deterministic and safe:
 # 	•	Solution meds: concentration is stock.mg_per_ml (from stock.mg / stock.volume_ml or a direct field if you stored it).
 # 	•	Powder meds: concentration is stock.mg / reconstitution.volume_ml after reconstitution.
 # You already enforce that powder must have a diluent + volume in your rules loader.

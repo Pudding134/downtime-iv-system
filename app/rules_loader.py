@@ -125,19 +125,20 @@ class Container(BaseModel):
 class Stock(BaseModel):
     """
     The commercial stock pack, not the final product:
-    - Solution: amount+volume → stock concentration known.
-    - Powder: amount only → stock volume depends on reconstitution.
+    - Solution: strength + volume → stock concentration known.
+    - Powder: strength only → stock volume depends on reconstitution.
     """
     model_config = ConfigDict(extra="forbid")
 
-    amount_mg: float
+    strength: float
+    unit: Literal["mg", "mcg"]
     volume_ml: Optional[float] = None
 
-    @field_validator("amount_mg")
+    @field_validator("strength")
     @classmethod
     def _amt_positive(cls, volume: float) -> float:
         if volume <= 0:
-            raise ValueError("stock.amount_mg must be > 0")
+            raise ValueError("stock.strength must be > 0")
         return volume
 
     @field_validator("volume_ml")
@@ -148,6 +149,26 @@ class Stock(BaseModel):
         if volume <= 0:
             raise ValueError("stock.volume_ml must be > 0 when provided")
         return volume
+    
+    @field_validator("unit", before=True)
+    @classmethod
+    def _unit_must_be_valid(cls, unit: str) -> str:
+        if not unit.strip():
+            raise ValueError("stock.unit must be provided")
+        if unit.strip().lower() not in {"mg", "mcg"}:
+            raise ValueError("stock.unit must be one of: 'mg', 'mcg'")
+        return unit
+    
+    def strength_mg(self) -> float:
+        """
+        Return strength expressed in milligrams, regardless of original unit.
+        - mg → mg (unchanged)
+        - mcg → divide by 1000
+        """
+        if self.unit == "mg":
+            return self.strength
+        else:  # mcg
+            return self.strength / 1000.0
 
 
 class Reconstitution(BaseModel):
@@ -161,6 +182,7 @@ class Reconstitution(BaseModel):
     diluent: Optional[str] = None
     volume_ml: Optional[float] = None
     note: Optional[str] = None
+    conc_after_recon_mg_per_ml: Optional[float] = None
 
     @field_validator("volume_ml")
     @classmethod
@@ -170,6 +192,15 @@ class Reconstitution(BaseModel):
         if volume <= 0:
             raise ValueError("reconstitution.volume_ml must be > 0 when provided")
         return volume
+
+    @field_validator("conc_after_recon_mg_per_ml")
+    @classmethod
+    def _conc_positive_if_present(cls, conc: Optional[float]) -> Optional[float]:
+        if conc is None:
+            return conc
+        if conc <= 0:
+            raise ValueError("reconstitution.conc_after_recon_mg_per_ml must be > 0 when provided")
+        return conc
 
 
 class ConcRange(BaseModel):
@@ -243,7 +274,7 @@ class Medication(BaseModel):
     presentation: Presentation
     stock: Stock
     reconstitution: Reconstitution
-    conc_mg_per_ml: ConcRange
+    conc_limit_mg_per_ml: ConcRange
     allowed_solvents: List[str]
     allowed_container_kinds: List[ContainerKind]
     stability: Stability

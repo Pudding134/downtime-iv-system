@@ -170,27 +170,45 @@ All rules live under `rules/`. Pharmacy staff can update YAML safely via the Adm
 - `syringe`: Syringes with `usable_fraction` (typically 0.8 for 80% usable volume).
 - `container_empty`: Generic empty containers (vials, custom containers) requiring user-specified solvent. Behaves like bag_empty but with different naming for pharmacy workflows.
 
-**medications.yaml** (examples abbreviated)
+**medications.yaml** (examples with new schema)
 ```yaml
+# Example 1: Solution medication with mg units
 - id: OXALIPLATIN
   name: Oxaliplatin
   presentation: solution
-  stock: { amount_mg: 100, volume_ml: 20 }
-  reconstitution: { required: false }
-  conc_mg_per_ml: { min: 0.2, max: 1.0 }
+  stock:
+    strength: 100
+    unit: mg
+    volume_ml: 20
+  reconstitution:
+    required: false
+  conc_limit_mg_per_ml:
+    min: 0.2
+    max: 1.0
   allowed_solvents: [D5]
-  allowed_container_kinds: [bag_prefilled, bag_empty, container_empty]
-  stability: { general_hours: 168 }
+  allowed_container_kinds: [bag_prefilled]
+  stability:
+    general_hours: 168
 
-- id: AZACITIDINE
-  name: Azacitidine
+# Example 2: Powder medication with special reconstitution concentration
+- id: TRASTUZUMAB
+  name: Trastuzumab
   presentation: powder
-  stock: { amount_mg: 100 }
-  reconstitution: { required: true, diluent: WFI, volume_ml: 4, note: "Cold WFI" }
-  conc_mg_per_ml: { min: 25, max: 25 }
-  allowed_solvents: [WFI]
+  stock:
+    strength: 440
+    unit: mg
+  reconstitution:
+    required: true
+    diluent: WFI
+    volume_ml: 20
+    conc_after_recon_mg_per_ml: 21  # Special case: differs from strength/volume
+  conc_limit_mg_per_ml:
+    min: 1.0
+    max: 1.0
+  allowed_solvents: [NS]
   allowed_container_kinds: [syringe]
-  stability: { general_hours: 8 }
+  stability:
+    general_hours: 144
 ```
 
 **steps_library.yaml** (extract)
@@ -255,6 +273,8 @@ defaults:
 
 ## Compute & Steps (overview)
 
+- **Medication Units Support:** Full support for different medication units (mg, mcg) with explicit unit field in schema.
+- **Special Reconstitution Cases:** Support for medications where reconstituted concentration differs from stock strength/volume ratio using `conc_after_recon_mg_per_ml`.
 - **Explicit User Selection:** All fields now require explicit user input - no auto-selection of containers, solvents, or medications. Users must choose all parameters to ensure clinical safety and accountability.
 - **Multiple Preparations:** Support for batch compounding scenarios (e.g., 3 identical syringes). System optimizes vial usage across all preparations to minimize waste.
 - **Pydantic Validation:** ComputeInput and ComputeResult models use Pydantic BaseModel for strict field validation, type checking, and OpenAPI documentation generation.
@@ -342,10 +362,17 @@ dob: str                # Date of birth (YYYY-MM-DD)
 weight_kg: float        # Patient weight in kg
 preparation_count: int   # Number of identical preparations (default: 1)
 medication_id: str      # Must match medication ID from medications.yaml
-dose_mg: float          # Dose amount in mg
+dose: DoseInput         # Contains amount and unit (e.g., {"amount": 100, "unit": "mg"})
 total_volume_ml: float  # Total volume for final preparation
 container_id: str       # Must match container ID from containers.yaml
 solvent_id: str         # Must match solvent ID from solvents.yaml (if needed)
+```
+
+**DoseInput Model:**
+```python
+class DoseInput(BaseModel):
+    amount: float       # Numerical amount of medication
+    unit: str          # Unit of measurement ("mg" or "mcg")
 ```
 
 **User Selection Requirements:**
@@ -519,11 +546,13 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 - [ ] PDF preview pane (worksheet/label) with regenerate button.
 
 ### Compute Engine
+- [x] ~~Unit support for medications (mg/mcg)~~
+- [x] ~~Special reconstitution concentration support~~
 - [ ] Implement syringe usable volume (`capacity * usable_fraction`).
 - [ ] Headroom logic: compute `v_withdraw_ml` vs available headspace.
-- [ ] Auto-upsize container selection; surface “Changed to X mL bag” note.
-- [ ] Powder path: `n_vials`, `reconst_per_vial_ml`, `stock_total_ml`, `stock_leftover_ml`.
-- [ ] Round to 0.1 mL; unit-safe arithmetic; block negative/unrealistic results.
+- [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
+- [x] ~~Powder path: `n_vials`, `reconst_per_vial_ml`, `stock_total_ml`, `stock_leftover_ml`.~~
+- [x] ~~Round to 0.1 mL; unit-safe arithmetic; block negative/unrealistic results.~~
 
 ### Rules & Integrity
 - [x] ~~Pydantic models with field validation~~
