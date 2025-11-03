@@ -18,7 +18,7 @@ Key functions:
 from dataclasses import dataclass
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal, Optional, List
-from rules_loader import RulesState
+from rules_loader import Medication, RulesState
 
 # Custom exception class for domain-specific errors
 @dataclass
@@ -29,6 +29,10 @@ class DomainError(Exception):
     hint: Optional[str] = None
     context: Optional[dict] = None
 
+
+# ---------------------------
+# Part 1: Input/Output Models
+# ---------------------------
 class ComputeInput(BaseModel):
     """
     User's selections for a compounding request.
@@ -124,23 +128,43 @@ class ComputeOutput(BaseModel):
                             description="Output model for computed compounding protocol."
                             )  # End of model config
 
+
+
+# ---------------------------
+# Part 2: Core Math Functions
+# ---------------------------
+
+
+
+
+
+
+# ---------------------------
+# Part 4: Main Compute Function (No Auto-Selection)
+# ---------------------------
 def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
-    # 1) Lookups
+    """
+    SPEC: Main computation entry point.
+    
+    Takes user input, runs all calculations and validations,
+    returns complete result for PDF generation.
+    All selections must be explicitly provided by user - no auto-selection.
+    """
+    # 1) Validate medication exist
     med = rules.meds.get(input_data.medication_id)
     if not med:
         raise DomainError("unknown_medication", "Medication ID not found.", field="medication_id")
 
+    # 2) Validate container exist
     ctr = rules.containers.get(input_data.container_id)
     if not ctr:
         raise DomainError("unknown_container", "Container ID not found.", field="container_id")
 
-    # 2) Solvent policy by container kind
-    ctr_kind = ctr.kind  # "bag_prefilled" | "bottle_prefilled" | "bag_empty" | "container_empty" | "syringe"
-
+    # 3) Determine solvent - prefilled containers use their solvent, others require user selection
     # Prefilled container defines solvent; user must NOT provide solvent
-    if ctr_kind in {"bag_prefilled", "bottle_prefilled"}:
+    if ctr.kind in {"bag_prefilled", "bottle_prefilled"}:
         if input_data.solvent_id is not None:
-            DomainError(
+            raise DomainError(
                 "solvent_not_allowed_for_prefilled",
                 "Solvent must not be provided for prefilled containers.",
                 field="solvent_id",
@@ -151,7 +175,7 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
         solvent_source = "container_prefill"
 
     # empty containers and syringes require user-selected solvent
-    elif ctr_kind in {"bag_empty", "container_empty", "syringe"}:
+    elif ctr.kind in {"bag_empty", "container_empty", "syringe"}:
         # User MUST provide solvent, and it must be allowed for the medication
         if input_data.solvent_id is None:
             raise DomainError(
@@ -174,17 +198,57 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
     else:
         raise DomainError(
             "unsupported_container_kind",
-            f"Container kind '{ctr_kind}' is not supported.",
+            f"Container kind '{ctr.kind}' is not supported.",
             ctx={"container_id": ctr.id},
         )
 
     # 3) Display names
     medication_name = med.name
-    container_name = getattr(ctr, "display_name", None) or ctr.id
+    container_name = getattr(ctr, "name", None) or ctr.id
     solv_obj = rules.solvents.get(final_solvent_id)
     solvent_name = (solv_obj.name if solv_obj else final_solvent_id)
 
-    # 4) Return placeholder ComputeOutput (numbers computed in M3.T2)
+    # 4) Compute stock concentration (mg/mL)
+    stock_conc_mg_per_ml = compute_stock_concentration(med)
+
+    # 5) Compute drug volume (mL) from dose and stock conc
+    drug_volume_ml = input_data.dose_mg / stock_conc_mg_per_ml
+
+    # 6) Compute container adjustment volume (mL)
+
+    # calculate the total product volume after drug addition - prefilled container vs empty containers and syringe, 
+    # if prefill container, then total volume = container prefill volume + drug volume
+    if ctr.kind in {'bag_prefilled', 'bottle_prefilled'}:
+        total_volume_ml = ctr.prefill_volume_ml + drug_volume_ml
+
+    # if syringe or empty container type then total volume = drug volume only
+    elif ctr.kind in {'syringe', 'bag_empty', 'container_empty'}:
+        total_volume_ml = drug_volume_ml
+
+    # first check if specified target concentration is provided, then check if it is within the medications conc_limit_mg_per_ml min and max limits
+    if input_data.target_conc_mg_per_ml is not None:
+        conc_limit = med.conc_limit_mg_per_ml
+        if conc_limit:
+            min_conc = conc_limit.get("min")
+            max_conc = conc_limit.get("max")
+            if (input_data.target_conc_mg_per_ml < min_conc) or \
+               (input_data.target_conc_mg_per_ml > max_conc):
+                raise DomainError(
+                    "target_concentration_out_of_range",
+                    "Specified target concentration is outside medication limits.",
+                    field="target_conc_mg_per_ml",
+                    hint=f"Must be between {min_conc} and {max_conc} mg/mL.",
+                    ctx={"medication_id": med.id, "target_conc_mg_per_ml": input_data.target_conc_mg_per_ml},
+                )
+    # if specified target concentration is provided, then check if adjustment is needed by comparing it to the current concentration after drug addition into container
+    # if yes, set adjustment volume
+    # after necessary adjustment, check if updated total product volume is within container capacity limits
+    # if not, raise an error
+    # if all good, then set final product volume
+
+
+
+    # ) Return placeholder ComputeOutput (numbers computed in M3.T2)
     return ComputeOutput(
         # echo key inputs
         dose_mg=input_data.dose_mg,
@@ -201,7 +265,7 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
         solvent_source=solvent_source,
 
         # no math yet
-        drug_volume_ml=None,
+        drug_volume_ml=drug_volume_ml,
         container_adjustment_vol_ml=None,
         final_product_conc_mg_per_ml=None,
         final_product_vol_ml=None,
@@ -244,11 +308,47 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
 # 	•	return stock_conc (as reconst_vial_conc_mg_per_ml for powders or stock_conc_mg_per_ml if you add that field),
 # 	•	and use it in the next step to derive the drug volume.
 
+def compute_stock_concentration(medication: Medication) -> float:
+    """
+    Compute the stock concentration (mg/mL) for any medication.
+    Handles both solution and powder types.
+    Raises DomainError if essential fields are missing or invalid.
+    """
+    # Solution medication
+    if medication.presentation == "solution":
+        if medication.stock.strength is None or medication.stock.volume_ml is None:
+            raise DomainError(
+                "missing_medication_stock_info",
+                "Medication stock information is incomplete.",
+                field="medication_id",
+                hint="Ensure stock strength and volume_ml are defined for solution medications.",
+                ctx={"medication_id": medication.id},
+            )
+        return medication.stock.strength_mg() / medication.stock.volume_ml
+    
+    # Powder medication
+    elif medication.presentation == "powder":
+        if medication.stock.strength is None or medication.reconstitution.volume_ml is None:
+            raise DomainError(
+                "missing_medication_reconstitution_info",
+                "Medication reconstitution information is incomplete.",
+                field="medication_id",
+                hint="Ensure stock strength and reconstitution volume_ml are defined for powder medications.",
+                ctx={"medication_id": medication.id},
+            )
+        # if a specific concentration after reconstitution is provided, use it
+        if medication.reconstitution.conc_after_recon_mg_per_ml is not None:
+            return medication.reconstitution.conc_after_recon_mg_per_ml
+        # otherwise compute from stock strength and reconstitution volume
+        else:
+            return medication.stock.strength_mg() / medication.reconstitution.volume_ml
+    # Unsupported medication presentation
+    else:
+        raise DomainError(
+            "unsupported_medication_presentation",
+            f"Medication presentation '{medication.presentation}' is not supported.",
+            ctx={"medication_id": medication.id},
+        )
 
 
 
-
-# B) Establish final volume policy (prefilled vs empty/syringe)
-# C) Compute drug volume (mL) from dose and stock conc
-# D) Compute container adjustment (pre-withdraw or top-up)
-# E) Set final product conc and in-range warnings

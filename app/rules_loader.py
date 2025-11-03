@@ -153,11 +153,12 @@ class Stock(BaseModel):
     @field_validator("unit", before=True)
     @classmethod
     def _unit_must_be_valid(cls, unit: str) -> str:
-        if not unit.strip():
+        unit_str = unit.strip().lower()
+        if not unit_str:
             raise ValueError("stock.unit must be provided")
-        if unit.strip().lower() not in {"mg", "mcg"}:
+        if unit_str not in {"mg", "mcg"}:
             raise ValueError("stock.unit must be one of: 'mg', 'mcg'")
-        return unit
+        return unit_str
     
     def strength_mg(self) -> float:
         """
