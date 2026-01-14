@@ -141,34 +141,38 @@ All rules live under `rules/`. Pharmacy staff can update YAML safely via the Adm
   for_dilution: false
 ```
 
-**containers.yaml** (headspace allowed: `prefill_ml <= capacity_ml`)
+**containers.yaml** (headspace allowed: `prefill_volume_ml <= capacity_ml`)
 ```yaml
 - id: bag_ns_250
+  name: "250 mL Normal Saline Bag"
   kind: bag_prefilled
   capacity_ml: 350
-  prefill_ml: 250
+  prefill_volume_ml: 250
   solvent: NS
 
-- id: empty_bag_250
+- id: bag_empty_250
+  name: "250 mL Empty IV Bag"
   kind: bag_empty
   capacity_ml: 250
 
-- id: syringe_50
+- id: syringe_50ml
+  name: "50 mL Syringe"
   kind: syringe
-  capacity_ml: 50
+  capacity_ml: 50.0
   usable_fraction: 0.8
 
 - id: deltec_cassette_100ml
+  name: "Deltec Cassette 100 mL"
   kind: container_empty
   capacity_ml: 100.0
 ```
 
 **Container Types:**
-- `bag_prefilled`: Pre-filled bags/bottles with existing solvent. Has `prefill_ml` and `solvent` fields.
+- `bag_prefilled`: Pre-filled bags with existing solvent. Has `prefill_volume_ml` and `solvent` fields. Headspace = `capacity_ml - prefill_volume_ml`.
 - `bag_empty`: Empty bags requiring user-specified solvent. No prefill volume.
 - `bottle_prefilled`: Pre-filled bottles with existing solvent, similar to bag_prefilled.
-- `syringe`: Syringes with `usable_fraction` (typically 0.8 for 80% usable volume).
-- `container_empty`: Generic empty containers (vials, custom containers) requiring user-specified solvent. Behaves like bag_empty but with different naming for pharmacy workflows.
+- `syringe`: Syringes with `usable_fraction` (typically 0.8 for 80% usable volume). Usable volume = `capacity_ml * usable_fraction`.
+- `container_empty`: Generic empty containers (vials, cassettes, etc.) requiring user-specified solvent. Behaves like bag_empty but for custom containers.
 
 **medications.yaml** (examples with new schema)
 ```yaml
@@ -277,11 +281,12 @@ defaults:
 - **Special Reconstitution Cases:** Support for medications where reconstituted concentration differs from stock strength/volume ratio using `conc_after_recon_mg_per_ml`.
 - **Explicit User Selection:** All fields now require explicit user input - no auto-selection of containers, solvents, or medications. Users must choose all parameters to ensure clinical safety and accountability.
 - **Multiple Preparations:** Support for batch compounding scenarios (e.g., 3 identical syringes). System optimizes vial usage across all preparations to minimize waste.
-- **Pydantic Validation:** ComputeInput and ComputeResult models use Pydantic BaseModel for strict field validation, type checking, and OpenAPI documentation generation.
-- **PHI Separation:** Patient Health Information (PHI) is separated from main compute results. ComputeResult excludes patient data; PHI is handled separately via PDFContext for PDF generation only.
-- **Rounding:** 0.1 mL (configurable).  
-- **Auto-upsize:** if final volume > capacity or headroom insufficient → next suitable container.  
-- **Final volume default:** equals container prefill (Admin can enable override per med/session).  
+- **Pydantic Validation:** ComputeInput and ComputeOutput models use Pydantic BaseModel for strict field validation, type checking, and OpenAPI documentation generation.
+- **PHI Separation:** Patient Health Information (PHI) is separated from main compute results. ComputeOutput excludes patient data; PHI is handled separately for PDF generation only.
+- **Error Handling:** Structured DomainError exceptions with machine-readable codes, helpful hints, and context for API responses (HTTP 422).
+- **Rounding:** 0.1 mL precision (configurable).  
+- **Container Adjustment:** User-entered adjustment volume (mL) to add or remove solvent, dynamically recalculates final concentration and volume in real-time.  
+- **Auto-upsize:** (TODO) if final volume > capacity or insufficient headroom → suggest next suitable container.  
 - **Concentration checks:** warn or block based on policy (out-of-range → warn; incompatible solvent → block).  
 - **Powder workflow:** compute `n_vials`, `reconst_per_vial_ml`, pooled `stock_total_ml`, and `stock_leftover_ml`.  
 - **Batch optimization:** For powder medications, calculates minimum vials needed across all preparations to reduce waste.
@@ -347,51 +352,115 @@ The system supports **batch compounding scenarios** where pharmacists need to pr
 
 ### API Routes  
 - `GET /rules/status` → **JSON health check** with integrity status, version, counts, and errors.  
-- `POST /compute` → compute numbers & warnings (JSON used by preview).  
-- `POST /preview/worksheet` → temp PDF; `POST /export/worksheet` → final PDF.  
+- `POST /compute` → compute initial volumes, concentrations from dose (real-time on field changes, or explicit call).  
+- `POST /preview/worksheet` → temp PDF with computed data; `POST /export/worksheet` → final PDF.
+
+**Real-time Calculation:**
+- Field changes (medication, container, solvent, dose, adjustment_vol) trigger immediate recalculation via `POST /compute`
+- No "submit button" required; calculations update as user types or selects options
+- Enter key or blur events can trigger optional explicit validation/finalization  
 
 ### API Models (Pydantic)
 
 #### ComputeInput
 **Required fields (all must be explicitly provided):**
 ```python
-patient_id: str          # Patient identifier
-patient_name: str        # Patient full name
-mrn: str                # Medical record number  
-dob: str                # Date of birth (YYYY-MM-DD)
-weight_kg: float        # Patient weight in kg
-preparation_count: int   # Number of identical preparations (default: 1)
 medication_id: str      # Must match medication ID from medications.yaml
-dose_mg: float          # Dose in milligrams (unit conversion handled in Stock model)
-total_volume_ml: float  # Total volume for final preparation
 container_id: str       # Must match container ID from containers.yaml
-solvent_id: str         # Must match solvent ID from solvents.yaml (if needed)
+solvent_id: Optional[str] = None  # Required for empty/syringe containers; must match allowed_solvents
+dose_mg: float          # Dose in milligrams (unit conversion handled in Stock.strength_mg())
+patient_name: Optional[str] = None    # For PDF only (not persisted)
+patient_hrn: Optional[str] = None     # Patient identifier for PDF (not persisted)
+container_adjustment_vol_ml: Optional[float] = None  # mL to add/subtract to adjust final concentration
+num_preparations: int = 1             # Number of identical preparations to make
 ```
+
+**User Input Workflow:**
+1. User provides medication, container, solvent, and dose (required)
+2. System calculates initial drug volume and concentration in real-time
+3. User optionally enters `container_adjustment_vol_ml` to adjust final concentration
+4. System recalculates final concentration and volume in real-time as user types
+5. Supports both addition (positive values) and subtraction (negative values) of solvent volume
 
 **User Selection Requirements:**
 - **No auto-selection:** Users must explicitly choose `medication_id`, `container_id`, and `solvent_id`
 - **Validation:** All IDs validated against loaded YAML rules with descriptive error messages
-- **Type safety:** Pydantic enforces field types and constraints
-- **PHI handling:** Patient information included in input but excluded from ComputeResult
+- **Solvent requirement:** Solvent required for empty/syringe containers; auto-provided for prefilled containers
+- **Real-time calculation:** Updates `final_product_conc_mg_per_ml` and `final_product_vol_ml` as user enters adjustment volume
+- **PHI handling:** Patient information included in input but excluded from ComputeOutput
 
-#### ComputeResult
-**PHI-free response (safe for API responses):**
+#### DomainError
+**Custom exception for domain-specific validation errors:**
 ```python
-medication_name: str        # Human-readable medication name
-container_name: str         # Human-readable container name
-solvent_name: str          # Human-readable solvent name
-total_volume_ml: float     # Final preparation volume
-concentration_mg_per_ml: float  # Final concentration
-steps: List[str]           # Step-by-step instructions
-warnings: List[str]        # Safety warnings and alerts
-is_powder: bool           # Powder vs solution medication
-n_vials: Optional[int]    # Number of vials needed (powder only)
-# ... additional calculation fields
+@dataclass
+class DomainError(Exception):
+    code: str              # Machine-readable error code
+    message: str           # User-friendly error message
+    field: Optional[str] = None      # Which field caused the error
+    hint: Optional[str] = None       # Guidance for fixing the error
+    context: Optional[dict] = None   # Additional context (IDs, values, etc.)
+```
+
+**HTTP 422 Response Example:**
+```json
+{
+  "detail": {
+    "code": "incompatible_solvent_selected",
+    "message": "Selected solvent is not allowed for this medication.",
+    "field": "solvent_id",
+    "hint": "Pick from the allowed list of solvents: NS, D5.",
+    "context": {"medication_id": "PACLITAXEL", "solvent_id": "WFI"}
+  }
+}
+```
+
+#### ComputeOutput
+**Result of computation (PHI-free for API responses):**
+```python
+# Input echo
+dose_mg: float
+num_preparations: int
+target_conc_mg_per_ml: Optional[float]
+
+# IDs and names
+medication_id: str
+medication_name: str
+container_id: str
+container_name: str
+solvent_id: str
+solvent_name: str
+solvent_source: Literal["container_prefill", "user_selection"]  # Where solvent came from
+
+# Core computed values
+drug_volume_ml: Optional[float]  # mL of drug solution to add
+container_adjustment_vol_ml: Optional[float]  # mL to withdraw (pre-drug) or adjust concentration
+final_product_conc_mg_per_ml: Optional[float]  # Final concentration after all adjustments
+final_product_vol_ml: Optional[float]  # Final product volume
+stock_conc_mg_per_ml: Optional[float]  # Stock concentration for reference
+
+# Powder medication fields
+required_num_vials_per_preparation: int
+reconst_per_vial_vol_ml: Optional[float]
+reconst_vial_conc_mg_per_ml: Optional[float]
+reconst_vial_total_vol_ml: Optional[float]
+reconst_vial_total_leftover_vol_ml: Optional[float]
+
+# Multiple preparations fields
+total_required_drug_volume_ml: Optional[float]
+total_vials_needed: int
+total_dose_mg_required: Optional[float]
+
+# Safety validation
+warnings: List[str]
+errors: List[str]
+steps: List[str]
+concentration_in_range: Optional[bool]
+solvent_compatible: Optional[bool]
 ```
 
 **PHI Separation:**
-- ComputeResult excludes all patient data for API safety
-- Patient info handled separately in PDFContext for worksheet generation
+- ComputeOutput excludes all patient data (name, HRN, etc.) for API safety
+- Patient info from ComputeInput is used for PDF generation only
 - Ensures PHI never appears in JSON API responses or logs  
 
 ### Admin Routes (M5)

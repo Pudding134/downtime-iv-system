@@ -152,5 +152,5 @@ def compute_endpoint(input_data: ComputeInput):
         detail = {"code": error.code, "message": error.message}
         if error.field: detail["field"] = error.field
         if error.hint:  detail["hint"]  = error.hint
-        if error.ctx:   detail["context"] = error.ctx
+        if error.context:   detail["context"] = error.context
         raise HTTPException(status_code=422, detail=detail)

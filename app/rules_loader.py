@@ -70,7 +70,7 @@ class Container(BaseModel):
     kind: ContainerKind
     capacity_ml: float
     usable_fraction: float = 1.0  # For syringes, typically 0.8
-    prefill_ml: Optional[float] = None
+    prefill_volume_ml: Optional[float] = None
     solvent: Optional[str] = None  # For prefilled containers
 
     @field_validator("capacity_ml")
@@ -98,24 +98,24 @@ class Container(BaseModel):
         """
         errs: List[str] = []
         if self.kind in {"bag_prefilled", "bottle_prefilled"}:
-            if self.prefill_ml is None:
-                errs.append("prefill_ml required for prefilled containers")
-            elif self.prefill_ml > self.capacity_ml:
-                errs.append("prefill_ml must be <= capacity_ml for prefilled containers")
+            if self.prefill_volume_ml is None:
+                errs.append("prefill_volume_ml required for prefilled containers")
+            elif self.prefill_volume_ml > self.capacity_ml:
+                errs.append("prefill_volume_ml must be <= capacity_ml for prefilled containers")
             if not self.solvent:
                 errs.append("solvent required for prefilled containers")
         
         elif self.kind in {"bag_empty", "container_empty"}:
-            if self.prefill_ml is not None:
-                errs.append(f"{self.kind} must not define prefill_ml")
+            if self.prefill_volume_ml is not None:
+                errs.append(f"{self.kind} must not define prefill_volume_ml")
             if self.solvent is not None:
                 errs.append(f"{self.kind} must not define solvent")
         
         elif self.kind == "syringe":
             if self.usable_fraction is None:
                 errs.append("syringe must define usable_fraction (e.g., 0.8)")
-            if self.prefill_ml is not None:
-                errs.append("syringe must not define prefill_ml")
+            if self.prefill_volume_ml is not None:
+                errs.append("syringe must not define prefill_volume_ml")
             if self.solvent is not None:
                 errs.append("syringe must not define solvent")
         

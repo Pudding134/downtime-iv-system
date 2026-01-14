@@ -3,56 +3,56 @@
   name: "50 mL Normal Saline Bag"
   kind: bag_prefilled
   capacity_ml: 65
-  prefill_ml: 50
+  prefill_volume_ml: 50
   solvent: NS
 
 - id: bag_ns_100
   name: "100 mL Normal Saline Bag"
   kind: bag_prefilled
   capacity_ml: 150
-  prefill_ml: 100
+  prefill_volume_ml: 100
   solvent: NS
 
 - id: bag_ns_250  
   name: "250 mL Normal Saline Bag"
   kind: bag_prefilled
   capacity_ml: 350
-  prefill_ml: 250
+  prefill_volume_ml: 250
   solvent: NS
 
 - id: bag_ns_500
   name: "500 mL Normal Saline Bag"
   kind: bag_prefilled  
   capacity_ml: 600
-  prefill_ml: 500
+  prefill_volume_ml: 500
   solvent: NS
 
 - id: bag_ns_1000
   name: "1000 mL Normal Saline Bag"
   kind: bag_prefilled  
   capacity_ml: 1200
-  prefill_ml: 1000
+  prefill_volume_ml: 1000
   solvent: NS
 
 - id: bag_d5_50
   name: "50 mL Dextrose 5% Bag" 
   kind: bag_prefilled
   capacity_ml: 65
-  prefill_ml: 50
+  prefill_volume_ml: 50
   solvent: D5
 
 - id: bag_d5_250
   name: "250 mL Dextrose 5% Bag" 
   kind: bag_prefilled
   capacity_ml: 350
-  prefill_ml: 250
+  prefill_volume_ml: 250
   solvent: D5
 
 - id: bag_d5_500
   name: "500 mL Dextrose 5% Bag"
   kind: bag_prefilled
   capacity_ml: 600
-  prefill_ml: 500
+  prefill_volume_ml: 500
   solvent: D5
 
 # Empty bags
@@ -76,42 +76,42 @@
   name: "50 mL Normal Saline Bottle (Ecoflac)"
   kind: bottle_prefilled
   capacity_ml: 65
-  prefill_ml: 50
+  prefill_volume_ml: 50
   solvent: NS
 
 - id: bottle_ns_100
   name: "100 mL Normal Saline Bottle (Ecoflac)"
   kind: bottle_prefilled
   capacity_ml: 125
-  prefill_ml: 100
+  prefill_volume_ml: 100
   solvent: NS
 
 - id: bottle_ns_250
   name: "250 mL Normal Saline Bottle (Ecoflac)"
   kind: bottle_prefilled
   capacity_ml: 250
-  prefill_ml: 250
+  prefill_volume_ml: 250
   solvent: NS
 
 - id: bottle_ns_500
   name: "500 mL Normal Saline Bottle (Ecoflac)"
   kind: bottle_prefilled
   capacity_ml: 600
-  prefill_ml: 500
+  prefill_volume_ml: 500
   solvent: NS
 
 - id: bottle_ns_1000
   name: "1000 mL Normal Saline Bottle (Ecoflac)"
   kind: bottle_prefilled
   capacity_ml: 1150
-  prefill_ml: 1000
+  prefill_volume_ml: 1000
   solvent: NS
 
 - id: bottle_d5_250
   name: "250 mL Dextrose 5% Bottle (Ecoflac)"
   kind: bottle_prefilled
   capacity_ml: 250
-  prefill_ml: 250
+  prefill_volume_ml: 250
   solvent: D5
 
 # Syringes  

@@ -18,7 +18,7 @@ Key functions:
 from dataclasses import dataclass
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Literal, Optional, List
-from rules_loader import Medication, RulesState, Container
+from .rules_loader import Medication, RulesState, Container
 
 # Custom exception class for domain-specific errors
 @dataclass
@@ -44,7 +44,7 @@ class ComputeInput(BaseModel):
     dose_mg: float = Field(gt=0, description="Dose in milligrams") # Total dose required (not per vial)
     patient_name: Optional[str] = Field(default=None, max_length=60, repr=False) # For PDF only
     patient_hrn: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9]{9}$", repr=False) # For PDF only
-    target_conc_mg_per_ml: Optional[float] = Field(default=None, gt=0, description="Product target concentration dose.") # Usually calculated
+    #target_conc_mg_per_ml: Optional[float] = Field(default=None, gt=0, description="Product target concentration dose.") # Usually calculated
     num_preparations: int = Field(default=1, ge=1, le=50, description="Number of identical prep to make.")  # Default to single prep
 
     model_config = ConfigDict(
@@ -60,7 +60,7 @@ class ComputeOutput(BaseModel):
     # Input echo - key values
     dose_mg: float
     num_preparations: int
-    target_conc_mg_per_ml: Optional[float] = None
+    #target_conc_mg_per_ml: Optional[float] = None
 
     # Input echo - id & names
     medication_id: str
@@ -248,8 +248,8 @@ def compute_final_product_conc_and_adjustment_vol(input_data: ComputeInput, cont
     if input_data.target_conc_mg_per_ml is not None:
         conc_limit = medication.conc_limit_mg_per_ml
         if conc_limit:
-            min_conc = conc_limit.get("min")
-            max_conc = conc_limit.get("max")
+            min_conc = medication.conc_limit_mg_per_ml.min
+            max_conc = medication.conc_limit_mg_per_ml.max
             if (input_data.target_conc_mg_per_ml < min_conc) or \
                (input_data.target_conc_mg_per_ml > max_conc):
                 raise DomainError(
