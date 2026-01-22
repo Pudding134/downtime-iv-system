@@ -44,7 +44,7 @@ class ComputeInput(BaseModel):
     dose_mg: float = Field(gt=0, description="Dose in milligrams") # Total dose required (not per vial)
     patient_name: Optional[str] = Field(default=None, max_length=60, repr=False) # For PDF only
     patient_hrn: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9]{9}$", repr=False) # For PDF only
-    #target_conc_mg_per_ml: Optional[float] = Field(default=None, gt=0, description="Product target concentration dose.") # Usually calculated
+    container_adjustment_vol_ml: float = Field(default=0.0, description="Container volume adjustment.") # Usually calculated
     num_preparations: int = Field(default=1, ge=1, le=50, description="Number of identical prep to make.")  # Default to single prep
 
     model_config = ConfigDict(
@@ -60,7 +60,8 @@ class ComputeOutput(BaseModel):
     # Input echo - key values
     dose_mg: float
     num_preparations: int
-    #target_conc_mg_per_ml: Optional[float] = None
+    container_adjustment_vol_ml: float
+
 
     # Input echo - id & names
     medication_id: str
@@ -74,7 +75,8 @@ class ComputeOutput(BaseModel):
 
     # Core computed values
     drug_volume_ml: Optional[float] = Field(None, gt=0, description="mL of drug solution to add")
-    container_adjustment_vol_ml: Optional[float] = Field(default=None, description="mL to withdraw or add volume to adjust concentration (withdrawal done before drug addition)")
+    container_start_vol = float = Field(ge=0.0, description= "The container prefill solvent volume, if any.")
+    container_adjustment_vol_ml: float = Field(default=0.0, description="mL to withdraw or add volume to adjust concentration (withdrawal done before drug addition)")
     final_product_conc_mg_per_ml: Optional[float] = Field(default=None, description="Final product concentration")
     final_product_vol_ml: Optional[float] = Field(default=None, description="Final product volume")
 
@@ -226,17 +228,18 @@ def determine_solvent_for_medication(medication: Medication, container: Containe
             ctx={"container_id": container.id},
         )
 
-def compute_final_product_conc_and_adjustment_vol(input_data: ComputeInput, container: Container, medication: Medication, drug_volume_ml: float) -> tuple[float, float]:
+
+def compute_final_product_vol_with_adjustment(input_data: ComputeInput, container: Container, drug_volume_ml: float) -> float:
     """
     Compute the final product concentration and adjustment volume based on input data.
     Returns a tuple of (final_product_conc_mg_per_ml, adjustment_volume_ml).
     """
     # calculate the total product volume after drug addition - prefilled containers use their prefill volume
     if container.kind in {'bag_prefilled', 'bottle_prefilled'}:
-        total_volume_ml = container.prefill_volume_ml + drug_volume_ml
+        total_volume_ml = container.prefill_volume_ml + drug_volume_ml + input_data.container_adjustment_vol_ml
     # empty containers and syringes only have drug volume
     elif container.kind in {'syringe', 'bag_empty', 'container_empty'}:
-        total_volume_ml = drug_volume_ml
+        total_volume_ml = drug_volume_ml + input_data.container_adjustment_vol_ml
     else:
         raise DomainError(
             "unsupported_container_kind",
@@ -244,53 +247,17 @@ def compute_final_product_conc_and_adjustment_vol(input_data: ComputeInput, cont
             ctx={"container_id": container.id},
         )
     
-    # check if specified target concentration is provided
-    if input_data.target_conc_mg_per_ml is not None:
-        conc_limit = medication.conc_limit_mg_per_ml
-        if conc_limit:
-            min_conc = medication.conc_limit_mg_per_ml.min
-            max_conc = medication.conc_limit_mg_per_ml.max
-            if (input_data.target_conc_mg_per_ml < min_conc) or \
-               (input_data.target_conc_mg_per_ml > max_conc):
-                raise DomainError(
-                    "target_concentration_out_of_range",
-                    "Specified target concentration is outside medication limits.",
-                    field="target_conc_mg_per_ml",
-                    hint=f"Must be between {min_conc} and {max_conc} mg/mL.",
-                    ctx={"medication_id": medication.id, "target_conc_mg_per_ml": input_data.target_conc_mg_per_ml},
-                )
-        # if specified target concentration is provided, then check if adjustment is needed by comparing it to the current concentration after drug addition into container
-        current_conc_mg_per_ml = input_data.dose_mg / total_volume_ml
-        if current_conc_mg_per_ml != input_data.target_conc_mg_per_ml:
-            # if different concentrations, set adjustment volume
-            adjustment_volume_ml = (input_data.target_conc_mg_per_ml - current_conc_mg_per_ml) * total_volume_ml
-            # after necessary adjustment, check if updated total product volume is within container capacity limits
-            if total_volume_ml + adjustment_volume_ml > container.capacity_ml:
-                raise DomainError(
-                    "container_capacity_exceeded",
-                    "Adjusted total product volume exceeds container capacity.",
-                    field= "total_volume_ml",
-                    ctx={"container_id": container.id, "total_volume_ml": total_volume_ml, "adjustment_volume_ml": adjustment_volume_ml},
-                )
-            # if all good, then set final product volume
-            total_volume_ml += adjustment_volume_ml
-            final_product_conc_mg_per_ml = input_data.target_conc_mg_per_ml
-        # else no adjustment needed for all other cases, set adjustment volume to 0.0
-        else:
-            adjustment_volume_ml = 0.0
-            final_product_conc_mg_per_ml = input_data.target_conc_mg_per_ml
-    # else no target concentration specified, set adjustment volume to 0.0, final concentration is current concentration
-    else:
-        adjustment_volume_ml = 0.0
-        final_product_conc_mg_per_ml = input_data.dose_mg / total_volume_ml
-    return final_product_conc_mg_per_ml, adjustment_volume_ml
+    return total_volume_ml
 
+
+def compute_final_product_concentration(input_data: ComputeInput, total_product_volume: float) -> float:
+    return input_data.dose_mg / total_product_volume
 
 
 # ---------------------------
 # Part 4: Main Compute Function (No Auto-Selection)
 # ---------------------------
-def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
+def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
     """
     SPEC: Main computation entry point.
     
@@ -328,57 +295,20 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
     # 6) Compute drug volume (mL) from dose and stock conc
     drug_volume_ml = input_data.dose_mg / stock_conc_mg_per_ml
 
-    # 7) Compute container adjustment volume (mL)
+    # 7) Compute product volume with adjustment
+    total_volume_ml = compute_final_product_vol_with_adjustment(
+        input_data=input_data,
+        container=ctr,
+        drug_volume_ml=drug_volume_ml
+    )
 
-    # calculate the total product volume after drug addition - prefilled container vs empty containers and syringe, 
-    # if prefill container, then total volume = container prefill volume + drug volume
-    if ctr.kind in {'bag_prefilled', 'bottle_prefilled'}:
-        total_volume_ml = ctr.prefill_volume_ml + drug_volume_ml
+    # 8) Compute final product concentration
+    final_product_conc_mg_per_ml = compute_final_product_concentration(input_data, total_volume_ml)
 
-    # if syringe or empty container type then total volume = drug volume only
-    elif ctr.kind in {'syringe', 'bag_empty', 'container_empty'}:
-        total_volume_ml = drug_volume_ml
 
-    # check if specified target concentration is provided, then check if it is within the medications conc_limit_mg_per_ml min and max limits
-    if input_data.target_conc_mg_per_ml is not None:
-        conc_limit = med.conc_limit_mg_per_ml
-        if conc_limit:
-            min_conc = conc_limit.get("min")
-            max_conc = conc_limit.get("max")
-            if (input_data.target_conc_mg_per_ml < min_conc) or \
-               (input_data.target_conc_mg_per_ml > max_conc):
-                raise DomainError(
-                    "target_concentration_out_of_range",
-                    "Specified target concentration is outside medication limits.",
-                    field="target_conc_mg_per_ml",
-                    hint=f"Must be between {min_conc} and {max_conc} mg/mL.",
-                    ctx={"medication_id": med.id, "target_conc_mg_per_ml": input_data.target_conc_mg_per_ml},
-                )
-        # if specified target concentration is provided, then check if adjustment is needed by comparing it to the current concentration after drug addition into container
-        current_conc_mg_per_ml = input_data.dose_mg / total_volume_ml
-        if current_conc_mg_per_ml != input_data.target_conc_mg_per_ml:
-            # if different concentrations, set adjustment volume
-            adjustment_volume_ml = (input_data.target_conc_mg_per_ml - current_conc_mg_per_ml) * total_volume_ml
-            # after necessary adjustment, check if updated total product volume is within container capacity limits
-            if total_volume_ml + adjustment_volume_ml > ctr.capacity_ml:
-                raise DomainError(
-                    "container_capacity_exceeded",
-                    "Adjusted total product volume exceeds container capacity.",
-                    field= "total_volume_ml",
-                    ctx={"container_id": ctr.id, "total_volume_ml": total_volume_ml, "adjustment_volume_ml": adjustment_volume_ml},
-                )
-            # if all good, then set final product volume
-            total_volume_ml += adjustment_volume_ml
-            final_product_conc_mg_per_ml = input_data.target_conc_mg_per_ml
-        # else no adjustment needed for all other cases, set adjustment volume to 0.0
-        else:
-            adjustment_volume_ml = 0.0
-            final_product_conc_mg_per_ml = input_data.target_conc_mg_per_ml
 
-    # else no target concentration specified, set adjustment volume to 0.0, final concentration is current concentration
-    else:
-        adjustment_volume_ml = 0.0
-        final_product_conc_mg_per_ml = input_data.dose_mg / total_volume_ml
+
+
 
 
     # ) Return placeholder ComputeOutput (numbers computed in M3.T2)
@@ -386,7 +316,6 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
         # echo key inputs
         dose_mg=input_data.dose_mg,
         num_preparations=input_data.num_preparations,
-        target_conc_mg_per_ml=input_data.target_conc_mg_per_ml,
 
         # ids & names
         medication_id=med.id,
@@ -399,7 +328,8 @@ def plan_compound(input_data: ComputeInput, rules:RulesState) -> ComputeOutput:
 
         # no math yet
         drug_volume_ml=drug_volume_ml,
-        container_adjustment_vol_ml=adjustment_volume_ml,
+        container_start_vol = ctr.prefill_volume_ml,
+        container_adjustment_vol_ml=input_data.container_adjustment_vol_ml,
         final_product_conc_mg_per_ml=final_product_conc_mg_per_ml,
         final_product_vol_ml=total_volume_ml,
 
