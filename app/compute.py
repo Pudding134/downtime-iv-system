@@ -229,16 +229,18 @@ def determine_solvent_for_medication(medication: Medication, container: Containe
         )
 
 
-def compute_final_product_vol_with_adjustment(input_data: ComputeInput, container: Container, drug_volume_ml: float) -> float:
+def compute_final_product_vol_with_adjustment(input_data: ComputeInput, container: Container, drug_volume_ml: float) -> tuple[float,float]:
     """
     Compute the final product concentration and adjustment volume based on input data.
     Returns a tuple of (final_product_conc_mg_per_ml, adjustment_volume_ml).
     """
     # calculate the total product volume after drug addition - prefilled containers use their prefill volume
     if container.kind in {'bag_prefilled', 'bottle_prefilled'}:
+        container_start_vol_ml = container.prefill_volume_ml
         total_volume_ml = container.prefill_volume_ml + drug_volume_ml + input_data.container_adjustment_vol_ml
     # empty containers and syringes only have drug volume
     elif container.kind in {'syringe', 'bag_empty', 'container_empty'}:
+        container_start_vol_ml = 0.0
         total_volume_ml = drug_volume_ml + input_data.container_adjustment_vol_ml
     else:
         raise DomainError(
@@ -247,7 +249,7 @@ def compute_final_product_vol_with_adjustment(input_data: ComputeInput, containe
             ctx={"container_id": container.id},
         )
     
-    return total_volume_ml
+    return total_volume_ml, container_start_vol_ml
 
 
 def compute_final_product_concentration(input_data: ComputeInput, total_product_volume: float) -> float:
@@ -296,14 +298,14 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
     drug_volume_ml = input_data.dose_mg / stock_conc_mg_per_ml
 
     # 7) Compute product volume with adjustment
-    total_volume_ml = compute_final_product_vol_with_adjustment(
+    total_product_volume_ml, container_start_vol_ml = compute_final_product_vol_with_adjustment(
         input_data=input_data,
         container=ctr,
         drug_volume_ml=drug_volume_ml
     )
 
     # 8) Compute final product concentration
-    final_product_conc_mg_per_ml = compute_final_product_concentration(input_data, total_volume_ml)
+    final_product_conc_mg_per_ml = compute_final_product_concentration(input_data, total_product_volume_ml)
 
 
 
@@ -328,10 +330,10 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
 
         # no math yet
         drug_volume_ml=drug_volume_ml,
-        container_start_vol = ctr.prefill_volume_ml,
+        container_start_vol_ml=container_start_vol_ml,
         container_adjustment_vol_ml=input_data.container_adjustment_vol_ml,
         final_product_conc_mg_per_ml=final_product_conc_mg_per_ml,
-        final_product_vol_ml=total_volume_ml,
+        final_product_vol_ml=total_product_volume_ml,
 
         # powder placeholders
         required_num_vials_per_preparation=1,
