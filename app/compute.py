@@ -330,7 +330,7 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
 
         # no math yet
         drug_volume_ml=drug_volume_ml,
-        container_start_vol_ml=container_start_vol_ml,
+        container_start_vol=container_start_vol_ml,
         container_adjustment_vol_ml=input_data.container_adjustment_vol_ml,
         final_product_conc_mg_per_ml=final_product_conc_mg_per_ml,
         final_product_vol_ml=total_product_volume_ml,
