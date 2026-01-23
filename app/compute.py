@@ -229,27 +229,58 @@ def determine_solvent_for_medication(medication: Medication, container: Containe
         )
 
 
-def compute_final_product_vol_with_adjustment(input_data: ComputeInput, container: Container, drug_volume_ml: float) -> tuple[float,float]:
+def compute_final_product_vol_with_adjustment(
+    input_data: ComputeInput, container: Container, drug_volume_ml: float
+) -> tuple[float, float, List[str]]:
     """
     Compute the final product concentration and adjustment volume based on input data.
-    Returns a tuple of (final_product_conc_mg_per_ml, adjustment_volume_ml).
+    Returns a tuple of (total_volume_ml, container_start_vol_ml, warnings).
     """
+    warnings: List[str] = []
     # calculate the total product volume after drug addition - prefilled containers use their prefill volume
     if container.kind in {'bag_prefilled', 'bottle_prefilled'}:
         container_start_vol_ml = container.prefill_volume_ml
-        total_volume_ml = container.prefill_volume_ml + drug_volume_ml + input_data.container_adjustment_vol_ml
     # empty containers and syringes only have drug volume
     elif container.kind in {'syringe', 'bag_empty', 'container_empty'}:
         container_start_vol_ml = 0.0
-        total_volume_ml = drug_volume_ml + input_data.container_adjustment_vol_ml
     else:
         raise DomainError(
             "unsupported_container_kind",
             f"Container kind '{container.kind}' is not supported.",
             ctx={"container_id": container.id},
         )
+    total_volume_ml = container_start_vol_ml + drug_volume_ml + input_data.container_adjustment_vol_ml
+
+    # Validate total volume is positive after adjustment
+    if total_volume_ml <= 0:
+        raise DomainError(
+            "invalid_total_volume",
+            "Total product volume must be greater than zero.",
+            ctx={
+                "container_start_vol_ml": container_start_vol_ml,
+                "drug_volume_ml": drug_volume_ml,
+                "adjustment_vol_ml": input_data.container_adjustment_vol_ml,
+            },
+        )
+    if container.kind == "syringe":
+        usable_fraction = container.usable_fraction if container.usable_fraction is not None else 1.0
+        usable_capacity_ml = container.capacity_ml * usable_fraction
+        if total_volume_ml > usable_capacity_ml:
+            warnings.append(
+                "Final product volume "
+                f"({total_volume_ml:.2f} mL) exceeds syringe usable capacity "
+                f"({usable_capacity_ml:.2f} mL)."
+            )
+
+    if container.kind in {"bag_prefilled", "bottle_prefilled", "bag_empty", "container_empty"}:
+        if total_volume_ml > container.capacity_ml:
+            warnings.append(
+                "Final product volume "
+                f"({total_volume_ml:.2f} mL) exceeds container capacity "
+                f"({container.capacity_ml:.2f} mL)."
+            )
     
-    return total_volume_ml, container_start_vol_ml
+    return total_volume_ml, container_start_vol_ml, warnings
 
 
 def compute_final_product_concentration(input_data: ComputeInput, total_product_volume: float) -> float:
@@ -298,7 +329,7 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
     drug_volume_ml = input_data.dose_mg / stock_conc_mg_per_ml
 
     # 7) Compute product volume with adjustment
-    total_product_volume_ml, container_start_vol_ml = compute_final_product_vol_with_adjustment(
+    total_product_volume_ml, container_start_vol_ml, vol_warnings = compute_final_product_vol_with_adjustment(
         input_data=input_data,
         container=ctr,
         drug_volume_ml=drug_volume_ml
@@ -350,10 +381,7 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
         # flags & lists
         concentration_in_range=None,
         solvent_compatible=True,
-        warnings=[],
+        warnings=vol_warnings,
         errors=[],
         steps=[],
     )
-
-
-
