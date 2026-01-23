@@ -242,6 +242,19 @@ def compute_final_product_vol_with_adjustment(
         container_start_vol_ml = container.prefill_volume_ml
     # empty containers and syringes only have drug volume
     elif container.kind in {'syringe', 'bag_empty', 'container_empty'}:
+        # Input guard: empty containers/syringes have no prefill to withdraw.
+        if input_data.container_adjustment_vol_ml < 0:
+            raise DomainError(
+                "invalid_container_adjustment",
+                "Container adjustment volume cannot be negative for empty containers or syringes.",
+                field="container_adjustment_vol_ml",
+                ctx={
+                    "container_id": container.id,
+                    "container_kind": container.kind,
+                    "adjustment_vol_ml": input_data.container_adjustment_vol_ml,
+                },
+            )
+
         container_start_vol_ml = 0.0
     else:
         raise DomainError(
@@ -251,7 +264,7 @@ def compute_final_product_vol_with_adjustment(
         )
     total_volume_ml = container_start_vol_ml + drug_volume_ml + input_data.container_adjustment_vol_ml
 
-    # Validate total volume is positive after adjustment
+    # Post-compute validation: total volume must be positive and within capacity constraints.
     if total_volume_ml <= 0:
         raise DomainError(
             "invalid_total_volume",
