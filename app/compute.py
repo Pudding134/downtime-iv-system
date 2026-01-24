@@ -279,18 +279,26 @@ def compute_final_product_vol_with_adjustment(
         usable_fraction = container.usable_fraction if container.usable_fraction is not None else 1.0
         usable_capacity_ml = container.capacity_ml * usable_fraction
         if total_volume_ml > usable_capacity_ml:
-            warnings.append(
-                "Final product volume "
-                f"({total_volume_ml:.2f} mL) exceeds syringe usable capacity "
-                f"({usable_capacity_ml:.2f} mL)."
+            raise DomainError(
+                "syringe_capacity_exceeded",
+                "Final product volume exceeds syringe usable capacity.",
+                field="container_adjustment_vol_ml",
+                ctx={
+                    "total_volume_ml": total_volume_ml,
+                    "usable_capacity_ml": usable_capacity_ml,
+                },
             )
 
     if container.kind in {"bag_prefilled", "bottle_prefilled", "bag_empty", "container_empty"}:
         if total_volume_ml > container.capacity_ml:
-            warnings.append(
-                "Final product volume "
-                f"({total_volume_ml:.2f} mL) exceeds container capacity "
-                f"({container.capacity_ml:.2f} mL)."
+            raise DomainError(
+                "container_capacity_exceeded",
+                "Final product volume exceeds container capacity.",
+                field="container_adjustment_vol_ml",
+                ctx={
+                    "total_volume_ml": total_volume_ml,
+                    "capacity_ml": container.capacity_ml,
+                },
             )
     
     return total_volume_ml, container_start_vol_ml, warnings
@@ -298,6 +306,7 @@ def compute_final_product_vol_with_adjustment(
 
 def compute_final_product_concentration(input_data: ComputeInput, total_product_volume: float) -> float:
     return input_data.dose_mg / total_product_volume
+
 
 
 # ---------------------------
@@ -351,9 +360,12 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
     # 8) Compute final product concentration
     final_product_conc_mg_per_ml = compute_final_product_concentration(input_data, total_product_volume_ml)
 
+    # 9) check if final product concentration is within medication allowed range, if not, add warning
 
 
+    # 10) calculate totals vials and containers for multiple preparations
 
+    # 11) assemble step-by-step instructions
 
 
 
