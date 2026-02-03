@@ -1,30 +1,35 @@
 # Downtime IV — Compounding Worksheets & Labels
 
-An **offline**, Windows-first app that generates IV medication **compounding instruction worksheets (A4 PDF)** and **sticky labels (Datamax label PDF)** for downtime scenarios. Runs as a **local HTTP app** (FastAPI + Jinja2), with **Guest** (read-only) and **Admin** (editor) roles. Rules are **YAML data packs** with **SHA-256 version badges**.
+An **offline**, Windows-first local app for IV compounding workflows. Current scope includes:
+- FastAPI + Jinja2 shell UI (Guest + Admin login)
+- Rules loader with cross-checks and **SHA-256 integrity badge**
+- `/compute` API with explicit selections, solvent resolution, stock concentration, and capacity checks
+
+PDF generation, step assembly, and the admin editor are **planned** and not yet wired.
 
 ### Compute Engine
-- [x] ~~Solution medication volume calculations~~
-- [x] ~~Powder medication logic: vial calculations, reconstitution volumes~~  
-- [x] ~~Concentration validation against medication ranges~~
-- [x] ~~Solvent compatibility checking~~
-- [x] ~~Safety warnings for out-of-range concentrations and incompatible solvents~~
-- [x] ~~Syringe usable volume (`capacity * usable_fraction`)~~
-- [x] ~~Round to 0.1 mL precision~~
-- [x] ~~Multiple preparations support with batch vial optimization~~
-- [x] ~~Pydantic BaseModel conversion with strict validation~~
-- [x] ~~Explicit user selection (no auto-selection of medications/containers/solvents)~~
-- [x] ~~PHI separation in API responses~~
-- [x] ~~Container_empty type support for generic empty containers~~
-- [ ] Headroom logic: compute `v_withdraw_ml` vs available headspace.
-- [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
+- [x] Stock concentration calculation for solution meds.
+- [x] Stock concentration calculation for powder meds (uses `conc_after_recon_mg_per_ml` when present).
+- [x] Explicit user selection (no auto-selection of medications/containers/solvents).
+- [x] Solvent resolution for prefilled vs empty/syringe containers.
+- [x] Container capacity checks (bags/bottles) and syringe usable volume enforcement.
+- [x] Pydantic BaseModel inputs/outputs with strict validation.
+- [x] PHI separation in API responses (patient fields not echoed).
+- [x] `container_empty` type support for generic empty containers.
+- [ ] Concentration range validation + warnings.
+- [ ] Powder volume math (vials/reconstitution/leftover) in the active compute path.
+- [ ] Multiple preparations (`num_preparations`) in the active compute path.
+- [ ] Round to 0.1 mL precision (or configurable rounding).
+- [ ] Headroom/withdrawal calculation (`v_withdraw_ml`) vs available headspace.
 - [ ] Step assembly from `steps_library.yaml` + `sequences.yaml`.
+- [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
 
 ### Rules & Integrity
 - [x] ~~Pydantic models with field validation~~
 - [x] ~~YAML loaders with duplicate detection~~
 - [x] ~~Cross-file validation (solvent references, container compatibility)~~
 - [x] ~~SHA-256 integrity checking vs rules_manifest.yaml~~
-- [x] ~~Rules badge display in UI (`Rules 2025.09.11 • 07136e`)~~
+- [x] ~~Rules badge display in UI (e.g., `Rules YYYY.MM.DD • abc123`)~~
 - [x] ~~Startup integrity verification and console logging~~
 - [x] ~~JSON API endpoint (`GET /rules/status`) with structured health data~~
 - [x] ~~RulesStatus Pydantic model for API responses~~
@@ -47,6 +52,7 @@ An **offline**, Windows-first app that generates IV medication **compounding ins
   - [Sample snippets](#sample-snippets)
   - [Integrity & Version Badge](#integrity--version-badge)
 - [Compute & Steps (overview)](#compute--steps-overview)
+- [Multiple Preparations (planned)](#multiple-preparations-planned)
 - [PDFs & Printing](#pdfs--printing)
 - [Endpoints](#endpoints)
 - [Local Development](#local-development)
@@ -78,35 +84,33 @@ An **offline**, Windows-first app that generates IV medication **compounding ins
 - **Server/UI:** FastAPI (local `127.0.0.1:<port>`), Jinja2 templates, HTMX (minimal JS).  
 - **PDFs:** ReportLab (A4 worksheet + label).  
 - **Data:** `rules/` YAML pack + `rules_manifest.yaml` (version + SHA-256 per file).  
-- **State:** Stateless sessions via signed cookie; no DB.  
-- **Fonts:** Bundled sans (Helvetica-compatible) for consistent layout.
+- **State:** Stateless sessions via signed cookie; no DB.
 
 Folder sketch:
 
 ```
 downtime-iv-system/
 ├─ app/
-│  ├─ main.py                # routes, views
+│  ├─ main.py                # routes, views, /compute
 │  ├─ auth.py                # passphrase + signed cookie sessions
 │  ├─ rules_loader.py        # YAML → models, cross-checks, hashing, badge
-│  ├─ views/                 # home_guest.html, home_admin.html, admin_login.html
-│  └─ static/                # optional CSS/JS
+│  ├─ compute.py             # active compute path
+│  ├─ compute_request.py     # legacy prototype (not wired)
+│  └─ views/                 # home_guest.html, home_admin.html, admin_login.html
 ├─ rules/                    # active data pack (per machine)
-├─ outputs/                  # generated PDFs (gitignored)
-├─ sample_rules/             # known-good examples for tests/CI
-├─ .env.example
-├─ pyproject.toml / requirements.txt
-└─ README.md
+├─ requirements.txt
+├─ .env
+└─ readme.md
 ```
 
 ---
 
 ## Roles & Access
 
-- **Guest (default):** compute, preview, print. No edits.  
-- **Admin:** login via passphrase; sees Editor, Validate & Freeze, Import/Export, Rollback.  
+- **Guest (default):** shell UI only; compute UI/preview not wired yet.  
+- **Admin:** login via passphrase; placeholder admin page (editor planned).  
 - **Session:** `dv_sess` signed cookie (itsdangerous), idle timeout (default **15 min**, sliding).  
-- **.lock:** during edits, `rules/.lock` prevents concurrent changes; auto-expires after 15 min.
+- **.lock:** planned for editor concurrency; not implemented yet.
 
 ---
 
@@ -122,6 +126,8 @@ All rules live under `rules/`. Pharmacy staff can update YAML safely via the Adm
 - `steps_library.yaml` — templated step texts with optional `when:` (Jinja).  
 - `sequences.yaml` — named ordered lists of steps (e.g., `bag_standard`).  
 - `rules_manifest.yaml` — `rules_version` + file→sha256 map.
+
+**Note:** `steps_library.yaml` and `sequences.yaml` are currently loaded only for integrity checking; step assembly is not yet wired.
 
 ### Sample snippets
 
@@ -277,74 +283,54 @@ defaults:
 
 ## Compute & Steps (overview)
 
-- **Medication Units Support:** Full support for different medication units (mg, mcg) with explicit unit field in schema.
-- **Special Reconstitution Cases:** Support for medications where reconstituted concentration differs from stock strength/volume ratio using `conc_after_recon_mg_per_ml`.
-- **Explicit User Selection:** All fields now require explicit user input - no auto-selection of containers, solvents, or medications. Users must choose all parameters to ensure clinical safety and accountability.
-- **Multiple Preparations:** Support for batch compounding scenarios (e.g., 3 identical syringes). System optimizes vial usage across all preparations to minimize waste.
-- **Pydantic Validation:** ComputeInput and ComputeOutput models use Pydantic BaseModel for strict field validation, type checking, and OpenAPI documentation generation.
-- **PHI Separation:** Patient Health Information (PHI) is separated from main compute results. ComputeOutput excludes patient data; PHI is handled separately for PDF generation only.
-- **Error Handling:** Structured DomainError exceptions with machine-readable codes, helpful hints, and context for API responses (HTTP 422).
-- **Rounding:** 0.1 mL precision (configurable).  
-- **Container Adjustment:** User-entered adjustment volume (mL) to add or remove solvent, dynamically recalculates final concentration and volume in real-time.  
-- **Auto-upsize:** (TODO) if final volume > capacity or insufficient headroom → suggest next suitable container.  
-- **Concentration checks:** warn or block based on policy (out-of-range → warn; incompatible solvent → block).  
-- **Powder workflow:** compute `n_vials`, `reconst_per_vial_ml`, pooled `stock_total_ml`, and `stock_leftover_ml`.  
-- **Batch optimization:** For powder medications, calculates minimum vials needed across all preparations to reduce waste.
-- **Steps assembly:** sequence + conditional steps + per-med insertions → render to PDF text blocks.
+Active compute flow (`app/compute.py`, wired to `/compute`):
+- Explicit IDs for medication/container/solvent (prefilled containers supply solvent; empty/syringe require user solvent).
+- Stock concentration calculation for solution and powder meds (powder uses `conc_after_recon_mg_per_ml` when present).
+- Drug volume and final volume computed using `container_adjustment_vol_ml`.
+- Capacity checks for bags/bottles and syringe usable volume enforcement.
+- Pydantic models with strict validation; `DomainError` returns HTTP 422 with structured detail.
+- Output includes core volumes/concentration; powder and multi-prep fields are placeholders for now.
+
+Not yet implemented in the active path:
+- Concentration range validation and compatibility warnings.
+- Rounding to 0.1 mL.
+- Headroom/withdrawal logic (`v_withdraw_ml`).
+- Multiple preparations scaling (`num_preparations`).
+- Step assembly from `steps_library.yaml` + `sequences.yaml`.
+
+Legacy/prototype note: `app/compute_request.py` contains an older compute prototype with broader math but is not wired to the API and does not match the current rule models.
 
 ---
 
-## Multiple Preparations Feature
+## Multiple Preparations (planned)
 
-The system supports **batch compounding scenarios** where pharmacists need to prepare multiple identical preparations (e.g., 3 syringes of the same medication for a patient or multiple patients with the same dosing).
+Design goal: support **batch compounding** where multiple identical preparations are calculated together.
 
-### Key Benefits
+Current status:
+- `num_preparations` exists in `ComputeInput`, but the active compute path does not yet scale volumes/vials.
+- A legacy prototype in `app/compute_request.py` explores the intended math, but it is not wired to the API.
 
-- **Vial Optimization**: Automatically calculates the minimum number of vials needed across all preparations to minimize waste
-- **Batch Efficiency**: Computes total volumes and doses for the entire batch
-- **Cost Savings**: Reduces medication waste by optimizing reconstituted medication usage
-- **Time Savings**: Single calculation session for multiple identical preparations
-
-### How It Works
-
-**Input**: Add `num_preparations` field to specify how many identical preparations to make (default: 1)
-
-**For Solution Medications**:
-- Calculates total drug volume needed across all preparations
-- Determines minimum vials required based on total volume
-- Provides per-preparation and total calculations
-
-**For Powder Medications**:
-- Calculates total dose needed: `total_dose_mg = dose_mg × num_preparations`
-- Optimizes vial count: `vials_needed = ceil(total_dose_mg ÷ vial_strength_mg)`
-- Computes reconstitution volumes based on total vial count
-- Tracks leftover reconstituted medication to minimize waste
-
-### Example Scenarios
-
-**Scenario 1**: 3 identical 50mL syringes of Paclitaxel 150mg
-- Input: `num_preparations = 3`, single preparation requirements
-- Output: Total drug volume, optimized vial count, batch instructions
-
-**Scenario 2**: 5 bags of Oxaliplatin for multiple patients with same dosing
-- Input: `num_preparations = 5`, standard dose/concentration
-- Output: Minimized vial waste, total preparation requirements
+Planned behavior:
+- Scale dose and drug volumes across all preparations.
+- Optimize vial count for powder meds to minimize waste.
+- Provide per-prep and total batch outputs.
 
 ---
 
 ## PDFs & Printing
 
-- **Worksheet:** A4 portrait with header (hospital + patient fields), body (numbered steps), warnings, footer badge (`Rules <version> • <short>` + timestamp).  
-- **Label:** v1 fixed preset (e.g., **100 × 50 mm**) formatted for Datamax; future presets can be added.  
-- **Preview:** embed PDF in browser viewer (pdf.js or native).  
-- **Export:** saves to `outputs/` with deterministic filenames.
+Planned (not implemented yet):
+- **Worksheet:** A4 portrait with header (hospital + patient fields), numbered steps, warnings, footer badge.
+- **Label:** v1 fixed preset (e.g., **100 × 50 mm**) formatted for Datamax; future presets can be added.
+- **Preview:** embed PDF in browser viewer (pdf.js or native).
+- **Export:** save to `outputs/` with deterministic filenames.
 
 ---
 
 ## Endpoints
 
 ### Core Routes
-- `GET /` → Guest home (compute UI).  
+- `GET /` → Guest home (shell UI).  
 - `GET /admin/login` → login form.  
 - `POST /admin/login` → validate passphrase → set signed cookie → 303 to `/admin`.  
 - `GET /admin` → Admin home (requires fresh session).  
@@ -352,18 +338,15 @@ The system supports **batch compounding scenarios** where pharmacists need to pr
 
 ### API Routes  
 - `GET /rules/status` → **JSON health check** with integrity status, version, counts, and errors.  
-- `POST /compute` → compute initial volumes, concentrations from dose (real-time on field changes, or explicit call).  
-- `POST /preview/worksheet` → temp PDF with computed data; `POST /export/worksheet` → final PDF.
+- `POST /compute` → compute volumes/concentration with explicit selections; returns `ComputeOutput`.
 
-**Real-time Calculation:**
-- Field changes (medication, container, solvent, dose, adjustment_vol) trigger immediate recalculation via `POST /compute`
-- No "submit button" required; calculations update as user types or selects options
-- Enter key or blur events can trigger optional explicit validation/finalization  
+**Real-time Calculation (planned):**
+- Field changes will trigger recalculation via `POST /compute` once the UI is wired.
 
 ### API Models (Pydantic)
 
 #### ComputeInput
-**Required fields (all must be explicitly provided):**
+**Fields (IDs must be explicitly provided):**
 ```python
 medication_id: str      # Must match medication ID from medications.yaml
 container_id: str       # Must match container ID from containers.yaml
@@ -371,7 +354,7 @@ solvent_id: Optional[str] = None  # Required for empty/syringe containers; must 
 dose_mg: float          # Dose in milligrams (unit conversion handled in Stock.strength_mg())
 patient_name: Optional[str] = None    # For PDF only (not persisted)
 patient_hrn: Optional[str] = None     # Patient identifier for PDF (not persisted)
-container_adjustment_vol_ml: Optional[float] = None  # mL to add/subtract to adjust final concentration
+container_adjustment_vol_ml: float = 0.0  # mL to add/subtract to adjust final concentration
 num_preparations: int = 1             # Number of identical preparations to make
 ```
 
@@ -382,11 +365,14 @@ num_preparations: int = 1             # Number of identical preparations to make
 4. System recalculates final concentration and volume in real-time as user types
 5. Supports both addition (positive values) and subtraction (negative values) of solvent volume
 
+**Notes:**
+- `container_adjustment_vol_ml` is applied to final volume; negative values are rejected for empty containers/syringes.
+- `num_preparations` is accepted but not yet applied in the active compute path.
+
 **User Selection Requirements:**
-- **No auto-selection:** Users must explicitly choose `medication_id`, `container_id`, and `solvent_id`
-- **Validation:** All IDs validated against loaded YAML rules with descriptive error messages
+- **No auto-selection:** Users must explicitly choose `medication_id` and `container_id` (and `solvent_id` when required)
+- **Validation:** All IDs validated against loaded YAML rules; errors return HTTP 422 with structured detail
 - **Solvent requirement:** Solvent required for empty/syringe containers; auto-provided for prefilled containers
-- **Real-time calculation:** Updates `final_product_conc_mg_per_ml` and `final_product_vol_ml` as user enters adjustment volume
 - **PHI handling:** Patient information included in input but excluded from ComputeOutput
 
 #### DomainError
@@ -420,7 +406,7 @@ class DomainError(Exception):
 # Input echo
 dose_mg: float
 num_preparations: int
-target_conc_mg_per_ml: Optional[float]
+container_adjustment_vol_ml: float
 
 # IDs and names
 medication_id: str
@@ -433,7 +419,6 @@ solvent_source: Literal["container_prefill", "user_selection"]  # Where solvent 
 
 # Core computed values
 drug_volume_ml: Optional[float]  # mL of drug solution to add
-container_adjustment_vol_ml: Optional[float]  # mL to withdraw (pre-drug) or adjust concentration
 final_product_conc_mg_per_ml: Optional[float]  # Final concentration after all adjustments
 final_product_vol_ml: Optional[float]  # Final product volume
 stock_conc_mg_per_ml: Optional[float]  # Stock concentration for reference
@@ -458,12 +443,16 @@ concentration_in_range: Optional[bool]
 solvent_compatible: Optional[bool]
 ```
 
+**Placeholders in current output:**
+- Powder and multi-prep fields are not yet computed (placeholders only).
+- `steps` is empty until step assembly is wired.
+
 **PHI Separation:**
 - ComputeOutput excludes all patient data (name, HRN, etc.) for API safety
 - Patient info from ComputeInput is used for PDF generation only
 - Ensures PHI never appears in JSON API responses or logs  
 
-### Admin Routes (M5)
+### Admin Routes (planned)
 - `GET /editor/*` → Admin editor pages.  
 - `POST /editor/validate` → run schema + cross-checks.  
 - `POST /editor/freeze` → recompute hashes, bump version, write manifest + changelog.  
@@ -486,21 +475,20 @@ solvent_compatible: Optional[bool]
 
 ## Local Development
 
-**Prereqs:** Python 3.11, Git. On macOS/Linux adapt activation commands.
+**Prereqs:** Python 3.11+, Git. On macOS/Linux adapt activation commands.
 
 ```bash
 # create & activate venv
-python3.11 -m venv downtime
+python -m venv downtime
 source downtime/bin/activate
 
 # install deps
 python -m pip install --upgrade pip
-python -m pip install fastapi "uvicorn[standard]" jinja2 python-multipart \
-  python-dotenv pyyaml pydantic itsdangerous reportlab
+python -m pip install -r requirements.txt
 
 # env
-cp .env.example .env
-# .env keys:
+# edit .env (create if missing)
+# .env keys used:
 # ADMIN_PASSPHRASE=...
 # SESSION_SECRET=... (long random)
 # LOCK_TIMEOUT_MIN=15
@@ -514,6 +502,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 ## Packaging & Distribution
 
+Planned (not wired yet):
 - **PyInstaller** one-folder exe (Windows): bundles Python runtime + app + fonts; rules live beside exe under `rules/`.  
 - **Unsigned pilot** first; later add code-signing if IT requires.  
 - **Import Data Pack**: ZIP file → validates → installs → auto-backup old pack.
@@ -522,6 +511,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 ## Editing Workflow (Admin)
 
+Planned workflow (not implemented yet):
 1. Enter Admin (passphrase).  
 2. Edit meds/containers/solvents/steps via forms or upload YAML.  
 3. **Validate**: schema + cross-checks; show **diff** preview.  
@@ -532,6 +522,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 ## Backups & Rollback
 
+Planned:
 - Each freeze stores a copy under `rules_backup/<version>/`.  
 - One-click rollback to last known good pack.
 
@@ -541,13 +532,14 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 - **No PHI persisted**: patient fields live in memory/PDF only.  
 - **Cookies:** `HttpOnly`, `SameSite=Lax`; localhost in pilot.  
-- **Logging:** operational (non-PHI) only—validation errors, admin actions, version used; rotate daily; keep 7 days.  
+- **Logging:** minimal console output today (rules load + integrity). Structured operational logging and rotation are planned.  
 - **Offline by design:** no third-party calls.
 
 ---
 
 ## Testing & Excel Parity
 
+Planned:
 - **Golden cases:** 5–10 pharmacy scenarios with expected volumes/warnings.  
 - **Parity:** generate from current Excel and compare numerically (± rounding).  
 - **Unit tests:** loader (schema + cross-checks), compute edge cases, PDF layout smoke tests.
@@ -556,26 +548,17 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 
 ## Milestones & Status
 
-- **M1 – Skeleton & Login** ✅ **COMPLETE**  
-  Basic routes, kiosk flow, passphrase auth, signed session, idle timeout.
+**M1 – Skeleton & Login** ✅ **COMPLETE**  
+Basic routes, passphrase auth, signed session, idle timeout.
 
-- **M2 – Rules Loader & Integrity** ✅ **COMPLETE**  
-  Pydantic models, cross-checks, SHA-256 badge, startup wiring, JSON status API.  
-  **Status**: All rules loading correctly (5 meds, 20 containers, 3 solvents), integrity verification working, badge showing `Rules 2025.09.11 • 07136e`. JSON API at `/rules/status` provides structured health data.
+**M2 – Rules Loader & Integrity** ✅ **COMPLETE**  
+Pydantic models, cross-checks, SHA-256 badge, startup wiring, JSON status API.
 
-- **M3 – Compute & Steps Hybrid** ✅ **COMPLETE**  
-  Volume calculations, concentration validation, step assembly.  
-  **Status**: Core compute engine implemented and tested for solution/powder medications with safety warnings. Multiple preparations support added with batch vial optimization for efficient compounding workflows.  
-  **Recent Updates**: 
-  - ✅ Converted to Pydantic BaseModel for ComputeInput/ComputeResult with strict validation
-  - ✅ Implemented explicit user selection - no auto-selection of medications, containers, or solvents
-  - ✅ Added PHI separation - patient data excluded from ComputeResult for API safety
-  - ✅ Added container_empty type support for generic empty containers/vials
-  - ✅ Enhanced field validation with descriptive error messages
-  - ✅ OpenAPI documentation generation from Pydantic models
+**M3 – Compute API (core math)** 🟡 **IN PROGRESS**  
+Active `/compute` path covers stock concentration, solvent resolution, container capacity checks, and final volume/concentration with adjustment. Powder/multi-prep math, rounding, warnings, and step assembly are still pending.
 
-- **M4 – PDFs & Preview** 🔜  
-  A4 + label PDFs via ReportLab, embedded preview, footer badge.
+**M4 – PDFs & Preview** 🔜  
+Planned. A4 + label PDFs via ReportLab, embedded preview, footer badge.
 
 - **M5 – Admin Editor** 🔜  
   Forms, Validate & Freeze, diff/changelog, .lock + timeout.
@@ -583,19 +566,14 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 - **M6 – Distribution** 🔜  
   PyInstaller build, Import/Export/Backup/Rollback flows.
 
-- **M7 – Testing & Parity** 🔜  
-  Golden cases, parity with Excel, pilot checklist.
+**M7 – Testing & Parity** 🔜  
+Planned.
 
-**Current Status (as of 2025-09-21):**  
-✅ Foundation and API infrastructure complete  
-✅ Rules integrity system with JSON health endpoints  
-✅ Authentication and session management functional  
-✅ Core compute engine working (solution + powder medications)  
-✅ Multiple preparations support with batch vial optimization  
-✅ Pydantic models with strict validation and PHI separation  
-✅ Explicit user selection for all medication/container/solvent choices  
-✅ Container type system supporting 5 types including container_empty  
-📍 Ready to wire compute engine into web UI and implement PDF generation
+**Current Status (as of 2026-02-03):**  
+✅ Rules loader + integrity badge + `/rules/status` API  
+✅ Admin login + signed-cookie sessions (placeholder admin UI)  
+✅ `/compute` endpoint with explicit selections, solvent resolution, stock concentration, and capacity checks  
+📍 UI wiring, step assembly, PDF generation, and admin editor are next
 
 ---
 
@@ -610,18 +588,22 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ### Compute Engine
 - [x] ~~Unit support for medications (mg/mcg)~~
 - [x] ~~Special reconstitution concentration support~~
-- [ ] Implement syringe usable volume (`capacity * usable_fraction`).
+- [x] ~~Implement syringe usable volume (`capacity * usable_fraction`).~~
+- [ ] Concentration range validation + warnings.
+- [ ] Solvent compatibility warnings (policy-driven).
 - [ ] Headroom logic: compute `v_withdraw_ml` vs available headspace.
 - [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
-- [x] ~~Powder path: `n_vials`, `reconst_per_vial_ml`, `stock_total_ml`, `stock_leftover_ml`.~~
-- [x] ~~Round to 0.1 mL; unit-safe arithmetic; block negative/unrealistic results.~~
+- [ ] Powder path: `n_vials`, `reconst_per_vial_ml`, `stock_total_ml`, `stock_leftover_ml`.
+- [ ] Multiple preparations scaling (`num_preparations`).
+- [ ] Round to 0.1 mL; unit-safe arithmetic; block negative/unrealistic results.
+- [ ] Step assembly from `steps_library.yaml` + `sequences.yaml`.
 
 ### Rules & Integrity
 - [x] ~~Pydantic models with field validation~~
 - [x] ~~YAML loaders with duplicate detection~~
 - [x] ~~Cross-file validation (solvent references, container compatibility)~~
 - [x] ~~SHA-256 integrity checking vs rules_manifest.yaml~~
-- [x] ~~Rules badge display in UI (`Rules 2025.09.11 • 07136e`)~~
+- [x] ~~Rules badge display in UI (e.g., `Rules YYYY.MM.DD • abc123`)~~
 - [x] ~~Startup integrity verification and console logging~~
 - [ ] JSON Schema for YAML; friendly errors surfaced in UI.
 - [ ] `/editor/validate` + `/editor/freeze` endpoints; write manifest; bump `rules_version`.
@@ -686,10 +668,12 @@ Internal pilot. License to be defined before wider distribution.
 - Keep IDs in UPPER_SNAKE; names human-readable.
 
 
-## Windows packaging with PyInstaller (quick guide)
+## Windows packaging with PyInstaller (planned)
+
+Planned workflow (not set up in repo yet). This section is a draft.
 
 **Prereqs**
-- Windows 10/11, Python 3.11, this repo cloned locally.
+- Windows 10/11, Python 3.11+, this repo cloned locally.
 - Create a venv and install deps (same as development):
 
 ```powershell
@@ -697,12 +681,11 @@ python -m venv .venv
 . .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-# If no requirements.txt yet:
-pip install fastapi "uvicorn[standard]" jinja2 python-multipart python-dotenv pyyaml pydantic itsdangerous reportlab pyinstaller
+pip install pyinstaller
 ```
 
 **Entry script (recommended)**
-Create a small launcher `run.py` at the repo root to start Uvicorn programmatically:
+Create a small launcher `run.py` at the repo root to start Uvicorn programmatically (not in repo yet):
 
 ```python
 # run.py
