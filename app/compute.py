@@ -1,18 +1,20 @@
 """
 app/compute.py
-M3 — Compute Engine: volume calculations, concentration validation, step assembly.
+M3 — Compute Engine: volume calculations, safety checks, (later) step assembly.
 
 What this file does:
-1) Take user inputs (medication, container, dose, patient info)
-2) Calculate volumes, concentrations, and safety checks
-3) Generate step-by-step instructions from rules
-4) Return everything needed for PDF generation
+1) Take user inputs (medication, container, dose, signed adjustment, patient info)
+2) Calculate volumes and concentrations; enforce safety rules as DomainError (HTTP 422)
+3) Return everything needed for PDF generation
 
 Key functions:
-- compute_protocol(): main entry point
-- calculate_volumes(): core math for solution/powder meds
-- validate_safety(): concentration and compatibility checks
-- assemble_steps(): generate instructions from steps_library + sequences
+- plan_compound(): main entry point called by POST /compute
+- compute_stock_concentration(): stock mg/mL for solution/powder meds
+- determine_solvent_for_medication(): resolve solvent by container kind + compatibility
+- compute_final_product_vol_with_adjustment(): start volume + signed adjustment + drug volume, capacity checks
+
+Still to come (see TODO.md): concentration range warning, powder vial math,
+multi-prep totals, rounding, step assembly from steps_library/sequences.
 """
 
 from dataclasses import dataclass
@@ -60,7 +62,7 @@ class ComputeOutput(BaseModel):
     # Input echo - key values
     dose_mg: float
     num_preparations: int
-    container_adjustment_vol_ml: float
+    container_adjustment_vol_ml: float = Field(default=0.0, description="mL to withdraw or add volume to adjust concentration (withdrawal done before drug addition)")
 
 
     # Input echo - id & names
@@ -76,9 +78,9 @@ class ComputeOutput(BaseModel):
     # Core computed values
     drug_volume_ml: Optional[float] = Field(None, gt=0, description="mL of drug solution to add")
     container_start_vol_ml: float = Field(ge=0.0, description= "The container prefill solvent volume, if any.")
-    container_adjustment_vol_ml: float = Field(default=0.0, description="mL to withdraw or add volume to adjust concentration (withdrawal done before drug addition)")
     final_product_conc_mg_per_ml: Optional[float] = Field(default=None, description="Final product concentration")
     final_product_vol_ml: Optional[float] = Field(default=None, description="Final product volume")
+    stock_conc_mg_per_ml: Optional[float] = Field(default=None, description="Stock concentration (diagnostic; also used on label/worksheet)")
 
     # safety validation (no default)
     warnings: List[str] = Field(default_factory=list)
@@ -102,9 +104,6 @@ class ComputeOutput(BaseModel):
     solvent_compatible: Optional[bool] = None
 
     # container adjustment details (if auto-resize)
-
-    # temporary variable for testing
-    stock_conc_mg_per_ml: Optional[float] = None
 
 
     model_config = ConfigDict(
@@ -199,6 +198,21 @@ def determine_solvent_for_medication(medication: Medication, container: Containe
                 hint="Remove solvent_id or choose an empty bag/syringe.",
                 context={"container_id": container.id},
             )
+        # The prefill solvent itself must be allowed for this medication
+        if container.solvent not in medication.allowed_solvents:
+            allowed = ", ".join(medication.allowed_solvents)
+            raise DomainError(
+                "prefilled_solvent_incompatible",
+                "This prefilled container's solvent is not allowed for this medication.",
+                field="container_id",
+                hint=f"Choose a container prefilled with: {allowed}.",
+                context={
+                    "medication_id": medication.id,
+                    "container_id": container.id,
+                    "container_solvent": container.solvent,
+                    "allowed_solvents": medication.allowed_solvents,
+                },
+            )
         return container.solvent, "container_prefill"
     
     # empty containers and syringes require user-selected solvent
@@ -231,15 +245,28 @@ def determine_solvent_for_medication(medication: Medication, container: Containe
 
 def compute_final_product_vol_with_adjustment(
     input_data: ComputeInput, container: Container, drug_volume_ml: float
-) -> tuple[float, float, List[str]]:
+) -> tuple[float, float]:
     """
-    Compute the final product concentration and adjustment volume based on input data.
-    Returns a tuple of (total_volume_ml, container_start_vol_ml, warnings).
+    Compute the final product volume from start volume + signed adjustment + drug volume,
+    enforcing physical/capacity limits as hard stops.
+    Returns a tuple of (total_volume_ml, container_start_vol_ml).
     """
-    warnings: List[str] = []
     # calculate the total product volume after drug addition - prefilled containers use their prefill volume
     if container.kind in {'bag_prefilled', 'bottle_prefilled'}:
         container_start_vol_ml = container.prefill_volume_ml
+        # Withdrawal happens before drug addition, so the bag must physically hold
+        # enough prefill to withdraw from: start + adjustment must not go negative.
+        if container_start_vol_ml + input_data.container_adjustment_vol_ml < 0:
+            raise DomainError(
+                "withdrawal_exceeds_prefill",
+                "Cannot withdraw more volume than the container's prefill.",
+                field="container_adjustment_vol_ml",
+                context={
+                    "container_id": container.id,
+                    "prefill_volume_ml": container_start_vol_ml,
+                    "adjustment_vol_ml": input_data.container_adjustment_vol_ml,
+                },
+            )
     # empty containers and syringes only have drug volume
     elif container.kind in {'syringe', 'bag_empty', 'container_empty'}:
         # Input guard: empty containers/syringes have no prefill to withdraw.
@@ -300,8 +327,8 @@ def compute_final_product_vol_with_adjustment(
                     "capacity_ml": container.capacity_ml,
                 },
             )
-    
-    return total_volume_ml, container_start_vol_ml, warnings
+
+    return total_volume_ml, container_start_vol_ml
 
 
 def compute_final_product_concentration(input_data: ComputeInput, total_product_volume: float) -> float:
@@ -310,7 +337,7 @@ def compute_final_product_concentration(input_data: ComputeInput, total_product_
 
 
 # ---------------------------
-# Part 4: Main Compute Function (No Auto-Selection)
+# Part 3: Main Compute Function (No Auto-Selection)
 # ---------------------------
 def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
     """
@@ -329,6 +356,22 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
     ctr = rules.containers.get(input_data.container_id)
     if not ctr:
         raise DomainError("unknown_container", "Container ID not found.", field="container_id")
+
+    # 2b) Container kind must be allowed for this medication
+    if ctr.kind not in med.allowed_container_kinds:
+        allowed = ", ".join(med.allowed_container_kinds)
+        raise DomainError(
+            "container_kind_not_allowed",
+            "Selected container kind is not allowed for this medication.",
+            field="container_id",
+            hint=f"Pick a container of kind: {allowed}.",
+            context={
+                "medication_id": med.id,
+                "container_id": ctr.id,
+                "container_kind": ctr.kind,
+                "allowed_container_kinds": med.allowed_container_kinds,
+            },
+        )
 
     # 3) Determine solvent - prefilled containers use their solvent, others require user selection
     final_solvent_id, solvent_source = determine_solvent_for_medication(
@@ -351,7 +394,7 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
     drug_volume_ml = input_data.dose_mg / stock_conc_mg_per_ml
 
     # 7) Compute product volume with adjustment
-    total_product_volume_ml, container_start_vol_ml, vol_warnings = compute_final_product_vol_with_adjustment(
+    total_product_volume_ml, container_start_vol_ml = compute_final_product_vol_with_adjustment(
         input_data=input_data,
         container=ctr,
         drug_volume_ml=drug_volume_ml
@@ -369,7 +412,7 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
 
 
 
-    # ) Return placeholder ComputeOutput (numbers computed in M3.T2)
+    # 12) Return the computed result (powder/multi-prep fields still placeholders)
     return ComputeOutput(
         # echo key inputs
         dose_mg=input_data.dose_mg,
@@ -384,12 +427,13 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
         solvent_name=solvent_name,
         solvent_source=solvent_source,
 
-        # no math yet
+        # core computed values
         drug_volume_ml=drug_volume_ml,
         container_start_vol_ml=container_start_vol_ml,
         container_adjustment_vol_ml=input_data.container_adjustment_vol_ml,
         final_product_conc_mg_per_ml=final_product_conc_mg_per_ml,
         final_product_vol_ml=total_product_volume_ml,
+        stock_conc_mg_per_ml=stock_conc_mg_per_ml,
 
         # powder placeholders
         required_num_vials_per_preparation=1,
@@ -404,9 +448,10 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
         total_dose_mg_required=None,
 
         # flags & lists
+        # solvent_compatible is honest now: incompatible solvents raise before we get here
         concentration_in_range=None,
         solvent_compatible=True,
-        warnings=vol_warnings,
+        warnings=[],
         errors=[],
         steps=[],
     )

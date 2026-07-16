@@ -103,6 +103,6 @@
     min: 1.0
     max: 1.0
   allowed_solvents: [NS]
-  allowed_container_kinds: [syringe]
+  allowed_container_kinds: [bag_prefilled]
   stability:
     general_hours: 144   # 6 days

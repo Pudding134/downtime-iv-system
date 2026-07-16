@@ -12,8 +12,9 @@ The fine-grained checklist and the in-flight milestone spec live in [TODO.md](TO
 - [x] Stock concentration calculation for solution meds.
 - [x] Stock concentration calculation for powder meds (uses `conc_after_recon_mg_per_ml` when present).
 - [x] Explicit user selection (no auto-selection of medications/containers/solvents).
-- [x] Solvent resolution for prefilled vs empty/syringe containers.
-- [x] Signed `container_adjustment_vol_ml` (withdraw headroom / add diluent); negative adjustment rejected for empty containers/syringes.
+- [x] Solvent resolution for prefilled vs empty/syringe containers, including prefilled-solvent compatibility (hard 422).
+- [x] `allowed_container_kinds` enforced per medication (hard 422).
+- [x] Signed `container_adjustment_vol_ml` (withdraw headroom / add diluent); negative adjustment rejected for empty containers/syringes, and withdrawal cannot exceed prefill volume.
 - [x] Final product volume and concentration from container start volume + adjustment + drug volume; final volume must be > 0 (hard stop).
 - [x] Container capacity checks (bags/bottles) and syringe usable volume enforcement — **hard stops (HTTP 422)**, not warnings.
 - [x] Pydantic BaseModel inputs/outputs with strict validation.
@@ -450,6 +451,7 @@ solvent_compatible: Optional[bool]
 **Placeholders in current output:**
 - Powder and multi-prep fields are not yet computed (placeholders only).
 - `steps` is empty until step assembly is wired.
+- `stock_conc_mg_per_ml` is populated (diagnostic; also used on the label/worksheet later).
 
 **PHI Separation:**
 - ComputeOutput excludes all patient data (name, HRN, etc.) for API safety
