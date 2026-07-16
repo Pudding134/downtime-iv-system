@@ -75,7 +75,7 @@ class ComputeOutput(BaseModel):
 
     # Core computed values
     drug_volume_ml: Optional[float] = Field(None, gt=0, description="mL of drug solution to add")
-    container_start_vol = float = Field(ge=0.0, description= "The container prefill solvent volume, if any.")
+    container_start_vol_ml: float = Field(ge=0.0, description= "The container prefill solvent volume, if any.")
     container_adjustment_vol_ml: float = Field(default=0.0, description="mL to withdraw or add volume to adjust concentration (withdrawal done before drug addition)")
     final_product_conc_mg_per_ml: Optional[float] = Field(default=None, description="Final product concentration")
     final_product_vol_ml: Optional[float] = Field(default=None, description="Final product volume")
@@ -150,7 +150,7 @@ def compute_stock_concentration(medication: Medication) -> float:
                 "Medication stock information is incomplete.",
                 field="medication_id",
                 hint="Ensure stock strength and volume_ml are defined for solution medications.",
-                ctx={"medication_id": medication.id},
+                context={"medication_id": medication.id},
             )
         return medication.stock.strength_mg() / medication.stock.volume_ml
     
@@ -162,7 +162,7 @@ def compute_stock_concentration(medication: Medication) -> float:
                 "Medication reconstitution information is incomplete.",
                 field="medication_id",
                 hint="Ensure stock strength and reconstitution volume_ml are defined for powder medications.",
-                ctx={"medication_id": medication.id},
+                context={"medication_id": medication.id},
             )
         # if a specific concentration after reconstitution is provided, use it
         if medication.reconstitution.conc_after_recon_mg_per_ml is not None:
@@ -175,7 +175,7 @@ def compute_stock_concentration(medication: Medication) -> float:
         raise DomainError(
             "unsupported_medication_presentation",
             f"Medication presentation '{medication.presentation}' is not supported.",
-            ctx={"medication_id": medication.id},
+            context={"medication_id": medication.id},
         )
 
 
@@ -197,7 +197,7 @@ def determine_solvent_for_medication(medication: Medication, container: Containe
                 "Solvent must not be provided for prefilled containers.",
                 field="solvent_id",
                 hint="Remove solvent_id or choose an empty bag/syringe.",
-                ctx={"container_id": container.id},
+                context={"container_id": container.id},
             )
         return container.solvent, "container_prefill"
     
@@ -217,7 +217,7 @@ def determine_solvent_for_medication(medication: Medication, container: Containe
                 "Selected solvent is not allowed for this medication.",
                 field="solvent_id",
                 hint=f"Pick from the allowed list of solvents: {allowed}.",
-                ctx={"medication_id": medication.id, "solvent_id": solvent_id},
+                context={"medication_id": medication.id, "solvent_id": solvent_id},
             )
         return solvent_id, "user_selection"
 
@@ -225,7 +225,7 @@ def determine_solvent_for_medication(medication: Medication, container: Containe
         raise DomainError(
             "unsupported_container_kind",
             f"Container kind '{container.kind}' is not supported.",
-            ctx={"container_id": container.id},
+            context={"container_id": container.id},
         )
 
 
@@ -248,7 +248,7 @@ def compute_final_product_vol_with_adjustment(
                 "invalid_container_adjustment",
                 "Container adjustment volume cannot be negative for empty containers or syringes.",
                 field="container_adjustment_vol_ml",
-                ctx={
+                context={
                     "container_id": container.id,
                     "container_kind": container.kind,
                     "adjustment_vol_ml": input_data.container_adjustment_vol_ml,
@@ -260,7 +260,7 @@ def compute_final_product_vol_with_adjustment(
         raise DomainError(
             "unsupported_container_kind",
             f"Container kind '{container.kind}' is not supported.",
-            ctx={"container_id": container.id},
+            context={"container_id": container.id},
         )
     total_volume_ml = container_start_vol_ml + drug_volume_ml + input_data.container_adjustment_vol_ml
 
@@ -269,7 +269,7 @@ def compute_final_product_vol_with_adjustment(
         raise DomainError(
             "invalid_total_volume",
             "Total product volume must be greater than zero.",
-            ctx={
+            context={
                 "container_start_vol_ml": container_start_vol_ml,
                 "drug_volume_ml": drug_volume_ml,
                 "adjustment_vol_ml": input_data.container_adjustment_vol_ml,
@@ -283,7 +283,7 @@ def compute_final_product_vol_with_adjustment(
                 "syringe_capacity_exceeded",
                 "Final product volume exceeds syringe usable capacity.",
                 field="container_adjustment_vol_ml",
-                ctx={
+                context={
                     "total_volume_ml": total_volume_ml,
                     "usable_capacity_ml": usable_capacity_ml,
                 },
@@ -295,7 +295,7 @@ def compute_final_product_vol_with_adjustment(
                 "container_capacity_exceeded",
                 "Final product volume exceeds container capacity.",
                 field="container_adjustment_vol_ml",
-                ctx={
+                context={
                     "total_volume_ml": total_volume_ml,
                     "capacity_ml": container.capacity_ml,
                 },
@@ -386,7 +386,7 @@ def plan_compound(input_data: ComputeInput, rules: RulesState) -> ComputeOutput:
 
         # no math yet
         drug_volume_ml=drug_volume_ml,
-        container_start_vol=container_start_vol_ml,
+        container_start_vol_ml=container_start_vol_ml,
         container_adjustment_vol_ml=input_data.container_adjustment_vol_ml,
         final_product_conc_mg_per_ml=final_product_conc_mg_per_ml,
         final_product_vol_ml=total_product_volume_ml,

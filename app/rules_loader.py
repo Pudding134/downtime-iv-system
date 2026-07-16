@@ -150,7 +150,7 @@ class Stock(BaseModel):
             raise ValueError("stock.volume_ml must be > 0 when provided")
         return volume
     
-    @field_validator("unit", before=True)
+    @field_validator("unit", mode="before")
     @classmethod
     def _unit_must_be_valid(cls, unit: str) -> str:
         unit_str = unit.strip().lower()

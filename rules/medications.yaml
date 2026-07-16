@@ -24,7 +24,7 @@
     volume_ml: 45
   reconstitution:
     required: false
-  conc_limit_mg_per_ml`:
+  conc_limit_mg_per_ml:
     min: 0.5
     max: 4.0
   allowed_solvents: [NS, D5]

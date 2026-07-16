@@ -3,24 +3,26 @@
 An **offline**, Windows-first local app for IV compounding workflows. Current scope includes:
 - FastAPI + Jinja2 shell UI (Guest + Admin login)
 - Rules loader with cross-checks and **SHA-256 integrity badge**
-- `/compute` API with explicit selections, solvent resolution, stock concentration, and capacity checks
+- `/compute` API with explicit selections, solvent resolution, core volume/concentration math, and capacity checks
 
 PDF generation, step assembly, and the admin editor are **planned** and not yet wired.
+The fine-grained checklist and the in-flight milestone spec live in [TODO.md](TODO.md).
 
 ### Compute Engine
 - [x] Stock concentration calculation for solution meds.
 - [x] Stock concentration calculation for powder meds (uses `conc_after_recon_mg_per_ml` when present).
 - [x] Explicit user selection (no auto-selection of medications/containers/solvents).
 - [x] Solvent resolution for prefilled vs empty/syringe containers.
-- [x] Container capacity checks (bags/bottles) and syringe usable volume enforcement.
+- [x] Signed `container_adjustment_vol_ml` (withdraw headroom / add diluent); negative adjustment rejected for empty containers/syringes.
+- [x] Final product volume and concentration from container start volume + adjustment + drug volume; final volume must be > 0 (hard stop).
+- [x] Container capacity checks (bags/bottles) and syringe usable volume enforcement — **hard stops (HTTP 422)**, not warnings.
 - [x] Pydantic BaseModel inputs/outputs with strict validation.
 - [x] PHI separation in API responses (patient fields not echoed).
 - [x] `container_empty` type support for generic empty containers.
-- [ ] Concentration range validation + warnings.
+- [ ] Concentration range validation → warnings.
 - [ ] Powder volume math (vials/reconstitution/leftover) in the active compute path.
 - [ ] Multiple preparations (`num_preparations`) in the active compute path.
 - [ ] Round to 0.1 mL precision (or configurable rounding).
-- [ ] Headroom/withdrawal calculation (`v_withdraw_ml`) vs available headspace.
 - [ ] Step assembly from `steps_library.yaml` + `sequences.yaml`.
 - [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
 
@@ -60,9 +62,9 @@ PDF generation, step assembly, and the admin editor are **planned** and not yet 
 - [Editing Workflow (Admin)](#editing-workflow-admin)
 - [Backups & Rollback](#backups--rollback)
 - [Security, Privacy, Logging](#security-privacy-logging)
-- [Testing & Excel Parity](#testing--excel-parity)
+- [Testing](#testing)
 - [Milestones & Status](#milestones--status)
-- [Project TODO (living)](#project-todo-living)
+- [Project TODO (living)](TODO.md) — separate file
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -285,18 +287,20 @@ defaults:
 
 Active compute flow (`app/compute.py`, wired to `/compute`):
 - Explicit IDs for medication/container/solvent (prefilled containers supply solvent; empty/syringe require user solvent).
-- Stock concentration calculation for solution and powder meds (powder uses `conc_after_recon_mg_per_ml` when present).
-- Drug volume and final volume computed using `container_adjustment_vol_ml`.
-- Capacity checks for bags/bottles and syringe usable volume enforcement.
+- Stock concentration calculation for solution and powder meds (powder uses `conc_after_recon_mg_per_ml` when present); mcg strengths normalized to mg via `Stock.strength_mg()`.
+- Drug volume from dose ÷ stock concentration; container start volume (prefill or 0).
+- **Signed adjustment model**: the pharmacist enters `container_adjustment_vol_ml` directly — negative = withdraw headroom (prefilled containers only), positive = add diluent. There is no target-concentration input; the system reports the resulting concentration instead of solving for one.
+- Final volume = start + adjustment + drug volume; must be positive (hard stop).
+- Capacity checks (bag/bottle capacity, syringe usable volume) as hard stops.
 - Pydantic models with strict validation; `DomainError` returns HTTP 422 with structured detail.
-- Output includes core volumes/concentration; powder and multi-prep fields are placeholders for now.
+- Output includes core volumes/concentration and `stock_conc_mg_per_ml` (diagnostic, also useful for label/worksheet); powder and multi-prep fields are placeholders for now.
 
-Not yet implemented in the active path:
-- Concentration range validation and compatibility warnings.
-- Rounding to 0.1 mL.
-- Headroom/withdrawal logic (`v_withdraw_ml`).
+Not yet implemented in the active path (spec in [TODO.md](TODO.md)):
+- Concentration range validation (planned as a warning, not a hard stop) and compatibility warnings.
+- Powder vial math (vials needed, reconstitution volumes, leftover).
 - Multiple preparations scaling (`num_preparations`).
-- Step assembly from `steps_library.yaml` + `sequences.yaml`.
+- Rounding to 0.1 mL.
+- Step assembly from `steps_library.yaml` + `sequences.yaml` (`when:` gating, Jinja2 `StrictUndefined`, render failures collected into `errors` rather than HTTP 500).
 
 Legacy/prototype note: `app/compute_request.py` contains an older compute prototype with broader math but is not wired to the API and does not match the current rule models.
 
@@ -537,12 +541,19 @@ Planned:
 
 ---
 
-## Testing & Excel Parity
+## Testing
 
-Planned:
-- **Golden cases:** 5–10 pharmacy scenarios with expected volumes/warnings.  
-- **Parity:** generate from current Excel and compare numerically (± rounding).  
-- **Unit tests:** loader (schema + cross-checks), compute edge cases, PDF layout smoke tests.
+Direction (decided): **pytest is the real suite**; curl is only for quick manual smoke tests.
+
+- **Unit tests (pytest):** positive + negative cases for each medication presentation
+  (solution/powder), each container kind (prefilled, empty, syringe), solvent policy errors,
+  capacity overflow, invalid adjustments (withdraw from empty, final volume ≤ 0), and
+  step rendering (`when:` gates, missing-variable handling).
+- **Golden cases:** 5–10 pharmacy scenarios with expected volumes/warnings.
+- **Excel parity:** generate from current Excel and compare numerically (± rounding).
+- **Loader tests:** schema + cross-checks with valid/invalid YAML; PDF layout smoke tests later.
+
+The concrete test checklist lives in [TODO.md](TODO.md).
 
 ---
 
@@ -554,8 +565,12 @@ Basic routes, passphrase auth, signed session, idle timeout.
 **M2 – Rules Loader & Integrity** ✅ **COMPLETE**  
 Pydantic models, cross-checks, SHA-256 badge, startup wiring, JSON status API.
 
-**M3 – Compute API (core math)** 🟡 **IN PROGRESS**  
-Active `/compute` path covers stock concentration, solvent resolution, container capacity checks, and final volume/concentration with adjustment. Powder/multi-prep math, rounding, warnings, and step assembly are still pending.
+**M3 – Compute API (core math + steps)** 🟡 **IN PROGRESS**  
+M3.T1 (solvent resolution + stock concentration helpers) done. M3.T2 (core math, reworked around
+the manual signed-adjustment design) mostly done: drug volume, start volume, signed adjustment,
+final volume/concentration, and hard-stop capacity checks are in. Remaining in T2: concentration
+range warning, powder vial math, multi-prep totals, rounding. Then M3.T3: step assembly.
+Detailed spec in [TODO.md](TODO.md).
 
 **M4 – PDFs & Preview** 🔜  
 Planned. A4 + label PDFs via ReportLab, embedded preview, footer badge.
@@ -569,60 +584,18 @@ Planned. A4 + label PDFs via ReportLab, embedded preview, footer badge.
 **M7 – Testing & Parity** 🔜  
 Planned.
 
-**Current Status (as of 2026-02-03):**  
+**Current Status (as of 2026-07-15):**  
 ✅ Rules loader + integrity badge + `/rules/status` API  
 ✅ Admin login + signed-cookie sessions (placeholder admin UI)  
-✅ `/compute` endpoint with explicit selections, solvent resolution, stock concentration, and capacity checks  
-📍 UI wiring, step assembly, PDF generation, and admin editor are next
+✅ `/compute` endpoint with explicit selections, solvent resolution, signed adjustment, final volume/concentration, and hard-stop capacity checks  
+📍 Finishing M3.T2 (concentration warning, powder vial math, multi-prep totals, rounding), then M3.T3 step assembly; UI wiring, PDFs, and admin editor after
 
 ---
 
-## Project TODO (living)
+## Project TODO
 
-### App & UI
-- [ ] Guest UI: medication + container + solvent selectors; patient fields (not stored).
-- [ ] Multiple preparations input field for batch compounding scenarios.
-- [ ] Warning banners for out-of-range concentration / incompatible solvent.
-- [ ] PDF preview pane (worksheet/label) with regenerate button.
-
-### Compute Engine
-- [x] ~~Unit support for medications (mg/mcg)~~
-- [x] ~~Special reconstitution concentration support~~
-- [x] ~~Implement syringe usable volume (`capacity * usable_fraction`).~~
-- [ ] Concentration range validation + warnings.
-- [ ] Solvent compatibility warnings (policy-driven).
-- [ ] Headroom logic: compute `v_withdraw_ml` vs available headspace.
-- [ ] Auto-upsize container selection; surface "Changed to X mL bag" note.
-- [ ] Powder path: `n_vials`, `reconst_per_vial_ml`, `stock_total_ml`, `stock_leftover_ml`.
-- [ ] Multiple preparations scaling (`num_preparations`).
-- [ ] Round to 0.1 mL; unit-safe arithmetic; block negative/unrealistic results.
-- [ ] Step assembly from `steps_library.yaml` + `sequences.yaml`.
-
-### Rules & Integrity
-- [x] ~~Pydantic models with field validation~~
-- [x] ~~YAML loaders with duplicate detection~~
-- [x] ~~Cross-file validation (solvent references, container compatibility)~~
-- [x] ~~SHA-256 integrity checking vs rules_manifest.yaml~~
-- [x] ~~Rules badge display in UI (e.g., `Rules YYYY.MM.DD • abc123`)~~
-- [x] ~~Startup integrity verification and console logging~~
-- [ ] JSON Schema for YAML; friendly errors surfaced in UI.
-- [ ] `/editor/validate` + `/editor/freeze` endpoints; write manifest; bump `rules_version`.
-- [ ] Rules badge everywhere (page header & PDF footer).
-
-### PDFs
-- [ ] ReportLab layouts (shared header/body/footer).
-- [ ] A4 worksheet: numbered steps + warnings + signature lines.
-- [ ] Label: 100×50 mm (Datamax) layout; later presets.
-
-### Admin
-- [ ] .lock creation on edit; auto-expire; show lock owner/time.
-- [ ] Import Data Pack (ZIP) → validate → install → backup prior pack.
-- [ ] One-click rollback to last good pack.
-
-### Tests
-- [ ] Loader unit tests (valid/invalid YAML, cross-checks).
-- [ ] Compute golden cases & edge cases.
-- [ ] Excel parity harness and report.
+The living TODO list — including the detailed spec for the milestone currently in flight
+(M3.T2 core math and M3.T3 steps assembly) — lives in **[TODO.md](TODO.md)**.
 
 ---
 
@@ -642,31 +615,6 @@ Internal pilot. License to be defined before wider distribution.
 
 
 ---
-
-## Using Copilot in this repo
-
-**Grounding rules**
-- Follow the architecture and data-pack schemas defined above.
-- Do not invent dependencies; use only the libraries listed in the README.
-- Prefer small, testable functions and incremental PR-sized changes.
-
-**Style & safety**
-- No PHI persistence. Log operational info only.
-- Return clear, actionable errors for YAML issues; do not crash.
-- Keep compute functions pure (no hidden global state). Inject inputs explicitly.
-
-**Good prompts to use**
-- "Implement `compute_rules_badge(manifest_path, data_paths)` returning `(status, badge_text, version)`; include `sha256_hex(path)` helper and basic tests."
-- "Write a step assembler that consumes `sequences.yaml` + `steps_library.yaml` + a `ctx` dict and returns a rendered list; honor each step's `when:` conditions."
-- "Add FastAPI `POST /editor/freeze` to recompute hashes in `rules/`, update `rules_manifest.yaml`, bump `rules_version` to `YYYY.MM.DD`, and return a plain-text result (no UI)."
-- "Unit tests: containers—reject prefilled where `prefill_ml > capacity_ml`; syringes—`usable_fraction` in (0,1]; messages identical to README."
-- "ReportLab: create `render_worksheet_pdf(data, path)` with shared header/footer; stub body; include version badge in the footer."
-
-**Conventions for Copilot**
-- Start new functions with a short `SPEC:` comment describing inputs, outputs, and edge cases.
-- Use TODO tags for follow-ups, e.g. `# TODO(M3): auto-upsize container`.
-- Keep IDs in UPPER_SNAKE; names human-readable.
-
 
 ## Windows packaging with PyInstaller (planned)
 
@@ -730,5 +678,3 @@ Notes:
 - *Template not found*: verify `--add-data "app\\views;app\\views"` and paths.
 - *Rules mismatch*: ensure the manifest hashes match or run the Admin Freeze step (M5) after editing.
 - *Missing fonts*: add them to a `fonts/` folder and include via `--add-data`.
-
-```
